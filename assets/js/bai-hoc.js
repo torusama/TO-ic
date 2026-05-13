@@ -23,6 +23,7 @@ import "./nghe-doc-data.js";
   let timerTimeoutId = 0;
   let timerRunId = 0;
   let unsubscribeCompletedLessons = () => {};
+  let youtubeApiPromise = null;
 
   function escapeHtml(value) {
     return String(value || "")
@@ -33,21 +34,28 @@ import "./nghe-doc-data.js";
   }
 
   function youtubeEmbed(url) {
-    if (!url) return "";
+    if (!url) return { src: "", isYouTube: false };
     try {
       const parsed = new URL(url, window.location.href);
+      let videoId = "";
       if (parsed.hostname.includes("youtu.be")) {
-        return `https://www.youtube.com/embed/${parsed.pathname.replace("/", "")}`;
+        videoId = parsed.pathname.replace("/", "");
       }
       if (parsed.hostname.includes("youtube.com")) {
-        const id = parsed.searchParams.get("v");
-        if (id) return `https://www.youtube.com/embed/${id}`;
-        if (parsed.pathname.startsWith("/embed/")) return parsed.href;
+        videoId = parsed.searchParams.get("v") || parsed.pathname.replace("/embed/", "");
+      }
+
+      if (videoId) {
+        const embedUrl = new URL(`https://www.youtube.com/embed/${videoId}`);
+        embedUrl.searchParams.set("enablejsapi", "1");
+        embedUrl.searchParams.set("origin", window.location.origin);
+        embedUrl.searchParams.set("playsinline", "1");
+        return { src: embedUrl.href, isYouTube: true };
       }
     } catch (error) {
-      return url;
+      return { src: url, isYouTube: false };
     }
-    return url;
+    return { src: url, isYouTube: false };
   }
 
   const order = String(Math.max(lessonNumber, 1)).padStart(2, "0");
@@ -78,8 +86,8 @@ import "./nghe-doc-data.js";
         <div class="lesson-video-shell">
           <div class="lesson-video-frame lesson-video-frame--centered">
             ${
-              video
-                ? `<iframe id="lessonVideoPlayer" src="${escapeHtml(video)}" title="${escapeHtml(title)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`
+              video.src
+                ? `<iframe id="lessonVideoPlayer" src="${escapeHtml(video.src)}" title="${escapeHtml(title)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`
                 : `<div class="video-empty">No video link for this lesson yet.</div>`
             }
           </div>
@@ -117,27 +125,27 @@ import "./nghe-doc-data.js";
         return;
       }
 
-      let savedElapsed = 0;
-      let savedElapsedReady = false;
+      let savedProgress = { elapsed: 0, videoTime: 0 };
+      let savedProgressReady = false;
       let completedSnapshotReady = false;
       let timerStarted = false;
 
       function startWhenReady() {
-        if (runId !== timerRunId || timerStarted || !savedElapsedReady || !completedSnapshotReady || hasCompletedLesson) return;
+        if (runId !== timerRunId || timerStarted || !savedProgressReady || !completedSnapshotReady || hasCompletedLesson) return;
         timerStarted = true;
-        startTimer(savedElapsed, runId);
+        startTimer(savedProgress, runId);
       }
 
       getTimerProgress(user.uid, completionKey)
-        .then((elapsed) => {
+        .then((progress) => {
           if (runId !== timerRunId) return;
-          savedElapsed = elapsed;
-          savedElapsedReady = true;
+          savedProgress = normalizeProgress(progress);
+          savedProgressReady = true;
           startWhenReady();
         })
         .catch(() => {
           if (runId !== timerRunId) return;
-          savedElapsedReady = true;
+          savedProgressReady = true;
           startWhenReady();
         });
 
@@ -160,56 +168,156 @@ import "./nghe-doc-data.js";
     });
   }
 
-  function startTimer(savedElapsed, runId) {
+  function startTimer(savedProgress, runId) {
     if (!lesson?.id) return;
 
     const timerText = document.querySelector("#lessonTimerText");
     if (!timerText) return;
 
     const totalSeconds = COMPLETION_MINUTES * 60;
-    let elapsed = Math.min(savedElapsed || 0, totalSeconds);
+    let elapsed = Math.min(savedProgress.elapsed || 0, totalSeconds);
+    let videoTime = Math.max(savedProgress.videoTime || 0, 0);
     let lastSaved = elapsed;
+    let lastSavedVideoTime = videoTime;
+    let isPlaying = false;
+    let player = null;
+
+    if (!video.src) {
+      setTimerState("loading", "Video is not ready yet.");
+      return;
+    }
+
+    showRemaining("paused", elapsed);
+
+    if (!video.isYouTube) {
+      setTimerState("loading", "Play tracking is only available for YouTube videos.");
+      return;
+    }
+
+    setupYouTubePlayer(runId)
+      .then((readyPlayer) => {
+        if (runId !== timerRunId) return;
+        player = readyPlayer;
+        const currentTime = getPlayerTime(player);
+        if (videoTime > 2 && currentTime < 2) {
+          player.seekTo(videoTime, true);
+        } else if (currentTime > videoTime) {
+          videoTime = currentTime;
+        }
+
+        const state = player.getPlayerState?.();
+        isPlaying = state === window.YT?.PlayerState?.PLAYING;
+        if (isPlaying) {
+          scheduleTick();
+        } else {
+          showRemaining("paused", elapsed);
+        }
+      })
+      .catch((error) => {
+        console.warn("Could not initialize YouTube tracking:", error);
+        setTimerState("loading", "Could not connect video tracking.");
+      });
 
     function tick() {
       if (runId !== timerRunId) return;
+      if (!isPlaying) return;
 
       if (hasCompletedLesson) {
+        saveNow();
         if (activeUser) clearTimerProgress(activeUser.uid, completionKey);
         updateCompletionStatus();
         return;
       }
 
-      const secondsLeft = totalSeconds - elapsed;
+      elapsed++;
+      videoTime = getPlayerTime(player);
 
-      if (secondsLeft <= 0) {
+      if (elapsed >= totalSeconds) {
         setTimerState("loading", "Completing lesson...");
-        if (activeUser) clearTimerProgress(activeUser.uid, completionKey);
+        saveNow();
         markLessonComplete();
         return;
       }
 
-      const mins = Math.floor(secondsLeft / 60);
-      const secs = secondsLeft % 60;
-      setTimerState("running", `Auto-complete in ${mins}:${String(secs).padStart(2, "0")}`);
+      showRemaining("running", elapsed);
 
-      elapsed++;
-
-      // Save to Firebase every 30 seconds to avoid excessive writes
-      if (activeUser && elapsed - lastSaved >= 30) {
+      // Save often enough that refreshing or leaving the page does not reset progress.
+      if (activeUser && (elapsed - lastSaved >= 5 || Math.abs(videoTime - lastSavedVideoTime) >= 5)) {
         lastSaved = elapsed;
-        saveTimerProgress(activeUser.uid, completionKey, elapsed);
+        lastSavedVideoTime = videoTime;
+        saveNow();
       }
 
+      scheduleTick();
+    }
+
+    function scheduleTick() {
+      clearTimeout(timerTimeoutId);
       timerTimeoutId = setTimeout(tick, 1000);
     }
 
-    tick();
+    function handlePlayerState(state) {
+      if (runId !== timerRunId) return;
+      const ytState = window.YT?.PlayerState || {};
+      const nextIsPlaying = state === ytState.PLAYING;
 
-    // Also save on page unload
-    window.addEventListener("beforeunload", () => {
-      if (activeUser && !hasCompletedLesson) {
-        saveTimerProgress(activeUser.uid, completionKey, elapsed);
+      if (!nextIsPlaying) {
+        isPlaying = false;
+        clearTimeout(timerTimeoutId);
+        videoTime = getPlayerTime(player);
+        saveNow();
+        if (!hasCompletedLesson) showRemaining("paused", elapsed);
+        return;
       }
+
+      isPlaying = true;
+      videoTime = getPlayerTime(player);
+      showRemaining("running", elapsed);
+      scheduleTick();
+    }
+
+    function setupYouTubePlayer(runId) {
+      const iframe = document.querySelector("#lessonVideoPlayer");
+      if (!iframe) return Promise.reject(new Error("Lesson video iframe is missing."));
+
+      return loadYouTubeApi().then(
+        (YT) =>
+          new Promise((resolve) => {
+            if (runId !== timerRunId) return;
+            const instance = new YT.Player(iframe, {
+              events: {
+                onReady: (event) => resolve(event.target),
+                onStateChange: (event) => handlePlayerState(event.data),
+              },
+            });
+            player = instance;
+          })
+      );
+    }
+
+
+    function showRemaining(state, watchedSeconds) {
+      const secondsLeft = Math.max(totalSeconds - watchedSeconds, 0);
+      const mins = Math.floor(secondsLeft / 60);
+      const secs = secondsLeft % 60;
+      const label = state === "running" ? "Auto-complete in" : "Paused - resume video to complete in";
+      setTimerState(state, `${label} ${mins}:${String(secs).padStart(2, "0")}`);
+    }
+
+    function saveNow() {
+      if (!activeUser || hasCompletedLesson) return;
+      saveTimerProgress(activeUser.uid, completionKey, {
+        elapsed,
+        videoTime: getPlayerTime(player) || videoTime,
+      });
+    }
+
+    // Also save on pause, refresh, tab close, and mobile browser backgrounding.
+    window.addEventListener("beforeunload", () => {
+      saveNow();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) saveNow();
     });
   }
 
@@ -231,6 +339,7 @@ import "./nghe-doc-data.js";
       });
       if (changed) {
         hasCompletedLesson = true;
+        await clearTimerProgress(activeUser.uid, completionKey);
         updateCompletionStatus();
       }
     } catch (error) {
@@ -244,6 +353,45 @@ import "./nghe-doc-data.js";
     if (hasCompletedLesson) {
       setTimerState("completed", "Lesson completed");
     }
+  }
+
+  function loadYouTubeApi() {
+    if (window.YT?.Player) return Promise.resolve(window.YT);
+    if (youtubeApiPromise) return youtubeApiPromise;
+
+    youtubeApiPromise = new Promise((resolve, reject) => {
+      const previousReady = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = () => {
+        previousReady?.();
+        resolve(window.YT);
+      };
+
+      if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
+        const script = document.createElement("script");
+        script.src = "https://www.youtube.com/iframe_api";
+        script.async = true;
+        script.onerror = () => reject(new Error("YouTube iframe API failed to load."));
+        document.head.appendChild(script);
+      }
+    });
+
+    return youtubeApiPromise;
+  }
+
+  function getPlayerTime(player) {
+    try {
+      return Number(player?.getCurrentTime?.() || 0);
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  function normalizeProgress(progress) {
+    if (typeof progress === "number") return { elapsed: progress, videoTime: 0 };
+    return {
+      elapsed: Number(progress?.elapsed || 0),
+      videoTime: Number(progress?.videoTime || 0),
+    };
   }
 
   function resetTimerRun() {
@@ -262,6 +410,7 @@ import "./nghe-doc-data.js";
     timerEl.hidden = false;
     timerEl.classList.toggle("is-loading", state === "loading");
     timerEl.classList.toggle("is-running", state === "running");
+    timerEl.classList.toggle("is-paused", state === "paused");
     timerEl.classList.toggle("is-completed", state === "completed");
     timerText.textContent = text;
   }

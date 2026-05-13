@@ -177,19 +177,33 @@ export function getCompletedLessonKey(courseId, lessonId) {
 }
 
 export async function getTimerProgress(uid, lessonKey) {
-  if (!db || !uid || !lessonKey) return 0;
+  if (!db || !uid || !lessonKey) return { elapsed: 0, videoTime: 0 };
   try {
     const snap = await getDoc(doc(db, "users", uid, "timerProgress", lessonKey));
-    return snap.exists() ? (snap.data().elapsed || 0) : 0;
+    if (!snap.exists()) return { elapsed: 0, videoTime: 0 };
+    const stored = snap.data();
+    return {
+      elapsed: Number(stored.elapsed || 0),
+      videoTime: Number(stored.videoTime || 0),
+    };
   } catch (_) {
-    return 0;
+    return { elapsed: 0, videoTime: 0 };
   }
 }
 
-export async function saveTimerProgress(uid, lessonKey, elapsed) {
+export async function saveTimerProgress(uid, lessonKey, progress) {
   if (!db || !uid || !lessonKey) return;
   try {
-    await setDoc(doc(db, "users", uid, "timerProgress", lessonKey), { elapsed, updatedAt: serverTimestamp() });
+    const payload = typeof progress === "number" ? { elapsed: progress } : progress || {};
+    await setDoc(
+      doc(db, "users", uid, "timerProgress", lessonKey),
+      {
+        elapsed: Number(payload.elapsed || 0),
+        videoTime: Number(payload.videoTime || 0),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
   } catch (_) {}
 }
 
