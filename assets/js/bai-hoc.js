@@ -20,6 +20,8 @@ import "./nghe-doc-data.js";
   let activeUser = null;
   let hasCompletedLesson = false;
   let pendingCompletion = false;
+  let timerTimeoutId = 0;
+  let timerRunId = 0;
   let unsubscribeCompletedLessons = () => {};
 
   function escapeHtml(value) {
@@ -73,17 +75,19 @@ import "./nghe-doc-data.js";
           <span id="lessonCompletionStatus" class="lesson-completion-status" hidden>Done</span>
         </div>
 
-        <div class="lesson-video-frame lesson-video-frame--centered">
-          ${
-            video
-              ? `<iframe id="lessonVideoPlayer" src="${escapeHtml(video)}" title="${escapeHtml(title)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`
-              : `<div class="video-empty">No video link for this lesson yet.</div>`
-          }
-        </div>
+        <div class="lesson-video-shell">
+          <div class="lesson-video-frame lesson-video-frame--centered">
+            ${
+              video
+                ? `<iframe id="lessonVideoPlayer" src="${escapeHtml(video)}" title="${escapeHtml(title)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`
+                : `<div class="video-empty">No video link for this lesson yet.</div>`
+            }
+          </div>
 
-        <div id="lessonTimer" class="lesson-timer" hidden>
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          <span id="lessonTimerText">Auto-complete in ${COMPLETION_MINUTES}:00</span>
+          <div id="lessonTimer" class="lesson-timer is-loading" aria-live="polite">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span id="lessonTimerText">Checking lesson progress...</span>
+          </div>
         </div>
       </section>
 
@@ -101,53 +105,84 @@ import "./nghe-doc-data.js";
   setupAuthSync();
 
   function setupAuthSync() {
-    onUserChanged(async (user) => {
+    onUserChanged((user) => {
+      const runId = resetTimerRun();
       activeUser = user;
       unsubscribeCompletedLessons();
       hasCompletedLesson = false;
       updateCompletionStatus();
 
-      if (!user) return;
+      if (!user) {
+        setTimerState("loading", "Waiting for sign-in...");
+        return;
+      }
 
-      // Load saved timer progress from Firebase
-      const savedElapsed = await getTimerProgress(user.uid, completionKey);
-      startTimer(savedElapsed);
+      let savedElapsed = 0;
+      let savedElapsedReady = false;
+      let completedSnapshotReady = false;
+      let timerStarted = false;
+
+      function startWhenReady() {
+        if (runId !== timerRunId || timerStarted || !savedElapsedReady || !completedSnapshotReady || hasCompletedLesson) return;
+        timerStarted = true;
+        startTimer(savedElapsed, runId);
+      }
+
+      getTimerProgress(user.uid, completionKey)
+        .then((elapsed) => {
+          if (runId !== timerRunId) return;
+          savedElapsed = elapsed;
+          savedElapsedReady = true;
+          startWhenReady();
+        })
+        .catch(() => {
+          if (runId !== timerRunId) return;
+          savedElapsedReady = true;
+          startWhenReady();
+        });
 
       unsubscribeCompletedLessons = listenCompletedLessons(
         user.uid,
         (lessonIds) => {
+          if (runId !== timerRunId) return;
           hasCompletedLesson = lessonIds.has(completionKey);
+          completedSnapshotReady = true;
           updateCompletionStatus();
+          startWhenReady();
           if (pendingCompletion) markLessonComplete();
         },
-        (error) => console.warn("Could not listen to completed lessons:", error)
+        (error) => {
+          console.warn("Could not listen to completed lessons:", error);
+          completedSnapshotReady = true;
+          startWhenReady();
+        }
       );
     });
   }
 
-  function startTimer(savedElapsed) {
+  function startTimer(savedElapsed, runId) {
     if (!lesson?.id) return;
 
-    const timerEl = document.querySelector("#lessonTimer");
     const timerText = document.querySelector("#lessonTimerText");
-    if (!timerEl || !timerText) return;
+    if (!timerText) return;
 
     const totalSeconds = COMPLETION_MINUTES * 60;
     let elapsed = Math.min(savedElapsed || 0, totalSeconds);
     let lastSaved = elapsed;
 
     function tick() {
+      if (runId !== timerRunId) return;
+
       if (hasCompletedLesson) {
-        timerEl.hidden = true;
         if (activeUser) clearTimerProgress(activeUser.uid, completionKey);
+        updateCompletionStatus();
         return;
       }
-      timerEl.hidden = false;
 
       const secondsLeft = totalSeconds - elapsed;
 
       if (secondsLeft <= 0) {
-        timerText.textContent = "Completing...";
+        setTimerState("loading", "Completing lesson...");
         if (activeUser) clearTimerProgress(activeUser.uid, completionKey);
         markLessonComplete();
         return;
@@ -155,7 +190,7 @@ import "./nghe-doc-data.js";
 
       const mins = Math.floor(secondsLeft / 60);
       const secs = secondsLeft % 60;
-      timerText.textContent = `Auto-complete in ${mins}:${String(secs).padStart(2, "0")}`;
+      setTimerState("running", `Auto-complete in ${mins}:${String(secs).padStart(2, "0")}`);
 
       elapsed++;
 
@@ -165,7 +200,7 @@ import "./nghe-doc-data.js";
         saveTimerProgress(activeUser.uid, completionKey, elapsed);
       }
 
-      setTimeout(tick, 1000);
+      timerTimeoutId = setTimeout(tick, 1000);
     }
 
     tick();
@@ -205,8 +240,29 @@ import "./nghe-doc-data.js";
 
   function updateCompletionStatus() {
     const status = document.querySelector("#lessonCompletionStatus");
-    const timerEl = document.querySelector("#lessonTimer");
     if (status) status.hidden = !hasCompletedLesson;
-    if (timerEl && hasCompletedLesson) timerEl.hidden = true;
+    if (hasCompletedLesson) {
+      setTimerState("completed", "Lesson completed");
+    }
+  }
+
+  function resetTimerRun() {
+    timerRunId += 1;
+    clearTimeout(timerTimeoutId);
+    timerTimeoutId = 0;
+    setTimerState("loading", "Checking lesson progress...");
+    return timerRunId;
+  }
+
+  function setTimerState(state, text) {
+    const timerEl = document.querySelector("#lessonTimer");
+    const timerText = document.querySelector("#lessonTimerText");
+    if (!timerEl || !timerText) return;
+
+    timerEl.hidden = false;
+    timerEl.classList.toggle("is-loading", state === "loading");
+    timerEl.classList.toggle("is-running", state === "running");
+    timerEl.classList.toggle("is-completed", state === "completed");
+    timerText.textContent = text;
   }
 })();

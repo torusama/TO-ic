@@ -997,17 +997,36 @@ a {
   border-top: 1px solid var(--border-color);
 }
 
+.lesson-video-shell {
+  position: relative;
+}
+
 .lesson-timer {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 16px;
   padding: 10px 16px;
-  background: rgba(28, 176, 246, 0.08);
-  border-radius: 12px;
+  border: 1px solid rgba(28, 176, 246, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 24px rgba(16, 15, 62, 0.12);
   color: var(--blue);
   font-size: 14px;
   font-weight: 700;
+}
+
+.lesson-timer.is-loading {
+  color: var(--gray-light);
+}
+
+.lesson-timer.is-completed {
+  border-color: rgba(88, 204, 2, 0.22);
+  background: rgba(246, 255, 240, 0.96);
+  color: var(--green-hover);
 }
 
 .row-action {
@@ -2364,8 +2383,13 @@ a {
 
   .lesson-timer {
     justify-content: center;
-    margin: 16px auto 0;
+    left: 50%;
+    right: auto;
+    bottom: 12px;
+    max-width: calc(100% - 24px);
+    transform: translateX(-50%);
     width: fit-content;
+    white-space: nowrap;
   }
 
   .lesson-doc-card {
