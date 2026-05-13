@@ -78,18 +78,42 @@ export function listenUserProfile(uid, callback, onError = console.warn) {
 
 export function listenActivities(uid, callback, onError = console.warn) {
   if (!db || !uid) return () => {};
-  const ref = query(collection(db, "users", uid, "activities"), orderBy("createdAt", "desc"), limit(50));
-  return onSnapshot(
-    ref,
-    (snapshot) =>
-      callback(
-        snapshot.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...docSnap.data(),
-        }))
-      ),
+  let activityItems = [];
+  let backupItems = [];
+
+  function emit() {
+    callback(mergeActivities(activityItems, backupItems));
+  }
+
+  const unsubscribeBackup = onSnapshot(
+    doc(db, "users", uid),
+    (snapshot) => {
+      backupItems = normalizeActivityBackup(snapshot.exists() ? snapshot.data().activityBackup : null);
+      emit();
+    },
     onError
   );
+
+  const ref = query(collection(db, "users", uid, "activities"), orderBy("createdAt", "desc"), limit(50));
+  const unsubscribeActivities = onSnapshot(
+    ref,
+    (snapshot) => {
+      activityItems = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        }));
+      emit();
+    },
+    (error) => {
+      console.warn("Could not listen to activity subcollection:", error);
+      emit();
+    }
+  );
+
+  return () => {
+    unsubscribeBackup();
+    unsubscribeActivities();
+  };
 }
 
 export function listenCompletedLessons(uid, callback, onError = console.warn) {
@@ -107,11 +131,9 @@ export async function completeLesson(user, lesson) {
   const lessonId = getCompletedLessonKey(lesson.courseId, lesson.lessonId);
   const userRef = doc(db, "users", user.uid);
   const completedRef = doc(db, "users", user.uid, "completedLessons", lessonId);
-  const activityRef = doc(collection(db, "users", user.uid, "activities"));
-
   const todayStr = getTodayKey();
 
-  return runTransaction(db, async (transaction) => {
+  const changed = await runTransaction(db, async (transaction) => {
     const existing = await transaction.get(completedRef);
     if (existing.exists()) return false;
 
@@ -149,7 +171,11 @@ export async function completeLesson(user, lesson) {
       { merge: true }
     );
 
-    transaction.set(activityRef, {
+    return true;
+  });
+
+  if (changed) {
+    recordLessonActivity(user, {
       type: "lesson-completed",
       title: "Lesson completed",
       body: lesson.lessonTitle || "",
@@ -157,12 +183,12 @@ export async function completeLesson(user, lesson) {
       courseTitle: lesson.courseTitle || "",
       lessonId: lesson.lessonId,
       lessonTitle: lesson.lessonTitle || "",
-      createdDateKey: todayStr,
-      createdAt: serverTimestamp(),
+    }).catch((error) => {
+      console.warn("Could not record completion activity:", error);
     });
+  }
 
-    return true;
-  });
+  return changed;
 }
 
 export async function recordLessonActivity(user, activity) {
@@ -170,40 +196,52 @@ export async function recordLessonActivity(user, activity) {
 
   const type = activity.type || "lesson-opened";
   const todayStr = getTodayKey();
+  const createdAtMs = Date.now();
   const activityId = getActivityKey(type, activity.courseId, activity.lessonId || activity.itemId || "course", todayStr);
   const userRef = doc(db, "users", user.uid);
   const activityRef = doc(db, "users", user.uid, "activities", activityId);
+  const activityPayload = {
+    id: activityId,
+    type,
+    title: activity.title || "Learning activity",
+    body: activity.body || activity.lessonTitle || "",
+    courseId: activity.courseId,
+    courseTitle: activity.courseTitle || "",
+    lessonId: activity.lessonId || activity.itemId || "",
+    lessonTitle: activity.lessonTitle || activity.body || "",
+    createdDateKey: todayStr,
+    createdAtMs,
+    createdAtIso: new Date(createdAtMs).toISOString(),
+  };
 
-  await setDoc(
-    activityRef,
-    {
-      type,
-      title: activity.title || "Learning activity",
-      body: activity.body || activity.lessonTitle || "",
-      courseId: activity.courseId,
-      courseTitle: activity.courseTitle || "",
-      lessonId: activity.lessonId || activity.itemId || "",
-      lessonTitle: activity.lessonTitle || activity.body || "",
-      createdDateKey: todayStr,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
-
-  if (activity.lessonId || activity.lessonTitle) {
+  try {
     await setDoc(
-      userRef,
+      activityRef,
       {
-        learning: {
-          recentCourse: activity.courseTitle || activity.courseId,
-          recentLesson: activity.lessonTitle || activity.body || activity.lessonId,
-        },
+        ...activityPayload,
+        createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       },
       { merge: true }
     );
+  } catch (error) {
+    console.warn("Could not write activity subcollection; using profile backup instead:", error);
   }
+
+  await setDoc(
+    userRef,
+    {
+      activityBackup: {
+        [activityId]: activityPayload,
+      },
+      learning: {
+        recentCourse: activity.courseTitle || activity.courseId,
+        recentLesson: activity.lessonTitle || activity.body || activity.lessonId || activity.itemId || "",
+      },
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
 
   return true;
 }
@@ -217,6 +255,27 @@ function getTodayKey(date = new Date()) {
 
 function getActivityKey(type, courseId, itemId, dateKey) {
   return `${type}__${courseId || "course"}__${itemId || "item"}__${dateKey || "date"}`.replace(/[/.#[\]]/g, "-");
+}
+
+function normalizeActivityBackup(value) {
+  if (!value || typeof value !== "object") return [];
+  return Object.entries(value).map(([id, item]) => ({ id, ...item }));
+}
+
+function mergeActivities(primaryItems, backupItems) {
+  const itemsById = new Map();
+  [...backupItems, ...primaryItems].forEach((item) => {
+    if (!item?.id) return;
+    itemsById.set(item.id, item);
+  });
+
+  return [...itemsById.values()]
+    .sort((a, b) => getActivityTime(b) - getActivityTime(a))
+    .slice(0, 50);
+}
+
+function getActivityTime(item) {
+  return Number(item.createdAtMs || item.createdAt?.toMillis?.() || Date.parse(item.createdAtIso || "") || 0);
 }
 
 export function getCompletedLessonKey(courseId, lessonId) {

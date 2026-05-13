@@ -225,7 +225,7 @@ function formatActivityMeta(item) {
   const pieces = [];
   if (item.courseTitle) pieces.push(item.courseTitle);
 
-  const date = item.createdAt?.toDate?.();
+  const date = item.createdAt?.toDate?.() || getActivityDate(item);
   if (date) {
     pieces.push(
       new Intl.DateTimeFormat(undefined, {
@@ -238,6 +238,14 @@ function formatActivityMeta(item) {
   }
 
   return pieces.join(" - ");
+}
+
+function getActivityDate(item) {
+  const timestamp = Number(item.createdAtMs || 0);
+  if (timestamp > 0) return new Date(timestamp);
+
+  const parsed = Date.parse(item.createdAtIso || "");
+  return Number.isNaN(parsed) ? null : new Date(parsed);
 }
 
 function setAuthState(state) {
