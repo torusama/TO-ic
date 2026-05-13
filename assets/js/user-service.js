@@ -165,11 +165,58 @@ export async function completeLesson(user, lesson) {
   });
 }
 
+export async function recordLessonActivity(user, activity) {
+  if (!db || !user || !activity?.courseId) return false;
+
+  const type = activity.type || "lesson-opened";
+  const todayStr = getTodayKey();
+  const activityId = getActivityKey(type, activity.courseId, activity.lessonId || activity.itemId || "course", todayStr);
+  const userRef = doc(db, "users", user.uid);
+  const activityRef = doc(db, "users", user.uid, "activities", activityId);
+
+  await setDoc(
+    activityRef,
+    {
+      type,
+      title: activity.title || "Learning activity",
+      body: activity.body || activity.lessonTitle || "",
+      courseId: activity.courseId,
+      courseTitle: activity.courseTitle || "",
+      lessonId: activity.lessonId || activity.itemId || "",
+      lessonTitle: activity.lessonTitle || activity.body || "",
+      createdDateKey: todayStr,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  if (activity.lessonId || activity.lessonTitle) {
+    await setDoc(
+      userRef,
+      {
+        learning: {
+          recentCourse: activity.courseTitle || activity.courseId,
+          recentLesson: activity.lessonTitle || activity.body || activity.lessonId,
+        },
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  }
+
+  return true;
+}
+
 function getTodayKey(date = new Date()) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function getActivityKey(type, courseId, itemId, dateKey) {
+  return `${type}__${courseId || "course"}__${itemId || "item"}__${dateKey || "date"}`.replace(/[/.#[\]]/g, "-");
 }
 
 export function getCompletedLessonKey(courseId, lessonId) {

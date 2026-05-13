@@ -1,4 +1,4 @@
-import { completeLesson, listenCompletedLessons, onUserChanged, getCompletedLessonKey, getTimerProgress, saveTimerProgress, clearTimerProgress } from "./user-service.js";
+import { completeLesson, listenCompletedLessons, onUserChanged, getCompletedLessonKey, getTimerProgress, saveTimerProgress, clearTimerProgress, recordLessonActivity } from "./user-service.js";
 
 import "./data.js";
 import "./nghe-doc-data.js";
@@ -24,6 +24,7 @@ import "./nghe-doc-data.js";
   let timerRunId = 0;
   let unsubscribeCompletedLessons = () => {};
   let youtubeApiPromise = null;
+  let lessonOpenRecorded = false;
 
   function escapeHtml(value) {
     return String(value || "")
@@ -123,6 +124,21 @@ import "./nghe-doc-data.js";
       if (!user) {
         setTimerState("loading", "Waiting for sign-in...");
         return;
+      }
+
+      if (!lessonOpenRecorded) {
+        lessonOpenRecorded = true;
+        recordLessonActivity(user, {
+          type: "lesson-opened",
+          title: "Lesson opened",
+          body: title,
+          courseId: course.id,
+          courseTitle: course.title,
+          lessonId: lesson?.id,
+          lessonTitle: title,
+        }).catch((error) => {
+          console.warn("Could not record lesson activity:", error);
+        });
       }
 
       let savedProgress = { elapsed: 0, videoTime: 0 };

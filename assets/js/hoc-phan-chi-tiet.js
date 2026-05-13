@@ -1,4 +1,4 @@
-import { getCompletedLessonKey, listenCompletedLessons, onUserChanged } from "./user-service.js";
+import { getCompletedLessonKey, listenCompletedLessons, onUserChanged, recordLessonActivity } from "./user-service.js";
 
 import "./data.js";
 import "./nghe-doc-data.js";
@@ -11,6 +11,7 @@ import "./nghe-doc-data.js";
   const breadcrumb = document.querySelector("#course-breadcrumb");
   const detail = document.querySelector("#course-detail");
   let completedLessons = new Set();
+  let activeUser = null;
   let unsubscribeCompletedLessons = () => {};
 
   const parts = course.parts?.length
@@ -24,6 +25,7 @@ import "./nghe-doc-data.js";
           items: course.lessons || [],
         },
       ];
+  const itemsById = new Map(parts.flatMap((part) => (part.items || []).map((item) => [item.id, item])));
 
   function escapeHtml(value) {
     return String(value || "")
@@ -49,9 +51,9 @@ import "./nghe-doc-data.js";
     const title = escapeHtml(item.title);
     if (item.isExercise) {
       if (!item.link) return `<span class="row-title-link is-disabled">${title}</span>`;
-      return `<a class="row-title-link" href="${escapeHtml(item.link)}" target="_blank" rel="noreferrer">${title}</a>`;
+      return `<a class="row-title-link" href="${escapeHtml(item.link)}" target="_blank" rel="noreferrer" data-activity-item="${escapeHtml(item.id)}">${title}</a>`;
     }
-    return `<a class="row-title-link" href="${lessonUrl(item)}">${title}</a>`;
+    return `<a class="row-title-link" href="${lessonUrl(item)}" data-activity-item="${escapeHtml(item.id)}">${title}</a>`;
   }
 
   function renderAction(item) {
@@ -121,6 +123,7 @@ import "./nghe-doc-data.js";
   renderPage();
 
   onUserChanged((user) => {
+    activeUser = user;
     unsubscribeCompletedLessons();
     completedLessons = new Set();
     renderPage();
@@ -134,5 +137,25 @@ import "./nghe-doc-data.js";
       },
       (error) => console.warn("Could not listen to completed lessons:", error)
     );
+  });
+
+  detail.addEventListener("click", (event) => {
+    const link = event.target.closest("[data-activity-item]");
+    if (!link || !activeUser) return;
+
+    const item = itemsById.get(link.dataset.activityItem);
+    if (!item?.isExercise) return;
+
+    recordLessonActivity(activeUser, {
+      type: "practice-opened",
+      title: "Practice opened",
+      body: item.title,
+      courseId: course.id,
+      courseTitle: course.title,
+      itemId: item.id,
+      lessonTitle: item.title,
+    }).catch((error) => {
+      console.warn("Could not record practice activity:", error);
+    });
   });
 })();
