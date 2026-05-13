@@ -6,7 +6,7 @@ import {
   listenNotifications,
   markAllNotificationsRead,
   markNotificationRead,
-} from "./notification-service.js?v=lesson-progress-3";
+} from "./notification-service.js";
 import {
   ensureUserProfile,
   listenActivities,
@@ -14,7 +14,7 @@ import {
   normalizeProfile,
   onUserChanged,
   signOutUser,
-} from "./user-service.js?v=lesson-progress-3";
+} from "./user-service.js";
 
 const firebaseNotice = document.querySelector("#firebaseNotice");
 const signOutBtn = document.querySelector("#signOutBtn");

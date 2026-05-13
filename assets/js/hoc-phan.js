@@ -1,3 +1,6 @@
+import "./data.js";
+import "./nghe-doc-data.js";
+
 (function () {
   const { courses } = window.TOIC_DATA;
   const panels = document.querySelector("#course-panels");

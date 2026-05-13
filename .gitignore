@@ -28,6 +28,7 @@ bower_components
 
 # node-modules
 node_modules/
+dist/
 
 # Optional npm cache directory
 .npm

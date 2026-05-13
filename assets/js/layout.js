@@ -1,5 +1,5 @@
-import { ensureDefaultNotifications, deleteNotification, listenNotifications, markNotificationRead } from "./notification-service.js?v=lesson-progress-3";
-import { ensureUserProfile, onUserChanged } from "./user-service.js?v=lesson-progress-3";
+import { ensureDefaultNotifications, deleteNotification, listenNotifications, markNotificationRead } from "./notification-service.js";
+import { ensureUserProfile, onUserChanged } from "./user-service.js";
 
 const currentPage = document.body.dataset.page;
 const links = [

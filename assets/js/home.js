@@ -1,5 +1,5 @@
 import { hasFirebaseConfig } from "./firebase-app.js";
-import { onUserChanged, signInWithGoogle, ensureUserProfile } from "./user-service.js?v=lesson-progress-3";
+import { onUserChanged, signInWithGoogle } from "./user-service.js";
 
 const signInButton = document.querySelector("#homeGoogleSignInBtn");
 const statusText = document.querySelector("#homeAuthStatus");

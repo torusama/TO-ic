@@ -1,4 +1,7 @@
-﻿import { getCompletedLessonKey, listenCompletedLessons, onUserChanged } from "./user-service.js?v=lesson-progress-3";
+import { getCompletedLessonKey, listenCompletedLessons, onUserChanged } from "./user-service.js";
+
+import "./data.js";
+import "./nghe-doc-data.js";
 
 (function () {
   const params = new URLSearchParams(window.location.search);

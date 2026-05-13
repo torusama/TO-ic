@@ -1,4 +1,7 @@
-import { completeLesson, listenCompletedLessons, onUserChanged, getCompletedLessonKey, getTimerProgress, saveTimerProgress, clearTimerProgress } from "./user-service.js?v=lesson-progress-3";
+import { completeLesson, listenCompletedLessons, onUserChanged, getCompletedLessonKey, getTimerProgress, saveTimerProgress, clearTimerProgress } from "./user-service.js";
+
+import "./data.js";
+import "./nghe-doc-data.js";
 
 (function () {
   const COMPLETION_MINUTES = 30;

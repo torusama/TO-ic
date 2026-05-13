@@ -4,7 +4,13 @@
   "description": "TOEIC Learning Platform",
   "main": "index.html",
   "scripts": {
-    "build": "node build-config.js"
+    "predev": "node build-config.js",
+    "dev": "vite --host 0.0.0.0",
+    "prebuild": "node build-config.js",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "vite": "^8.0.12"
+  }
 }
