@@ -206,28 +206,96 @@ function renderLearningMap() {
   if (!learningMap) return;
 
   const items = getLearningMapItems();
-  learningMap.innerHTML = items.map((item) => renderLearningMapCard(item)).join("");
+  learningMap.innerHTML = renderSpiderMap(items.map(normalizeMapItem));
 }
 
-function renderLearningMapCard(item) {
-  const percent = item.total > 0 ? Math.round((item.completed / item.total) * 100) : 0;
-  const status = item.total > 0 ? `${item.completed}/${item.total}` : item.emptyLabel || "Soon";
-  const completeClass = item.total > 0 && item.completed >= item.total ? " is-complete" : "";
+function renderSpiderMap(items) {
+  const size = 340;
+  const center = 170;
+  const radius = 108;
+  const levels = [0.2, 0.4, 0.6, 0.8, 1];
+  const average = Math.round(items.reduce((sum, item) => sum + item.percent, 0) / Math.max(items.length, 1));
+  const grid = levels
+    .map((level) => `<polygon class="spider-grid-line" points="${getSpiderPoints(items.length, level, center, radius)}"></polygon>`)
+    .join("");
+  const axes = items
+    .map((item, index) => {
+      const end = getSpiderPoint(index, items.length, 1, center, radius);
+      const label = getSpiderPoint(index, items.length, 1.27, center, radius);
+      return `
+        <line class="spider-axis" x1="${center}" y1="${center}" x2="${end.x}" y2="${end.y}"></line>
+        <text class="spider-axis-label" x="${label.x}" y="${label.y}" text-anchor="middle" dominant-baseline="middle">${escapeHtml(item.axisLabel)}</text>
+      `;
+    })
+    .join("");
+  const valuePoints = items
+    .map((item, index) => {
+      const point = getSpiderPoint(index, items.length, item.percent / 100, center, radius);
+      return `${point.x},${point.y}`;
+    })
+    .join(" ");
+  const markers = items
+    .map((item, index) => {
+      const point = getSpiderPoint(index, items.length, item.percent / 100, center, radius);
+      return `<circle class="spider-marker" cx="${point.x}" cy="${point.y}" r="5" style="--skill-color: ${escapeHtml(item.color)}"><title>${escapeHtml(item.title)} ${item.percent}%</title></circle>`;
+    })
+    .join("");
 
   return `
-    <a class="learning-map-card${completeClass}" href="${escapeHtml(item.href)}" style="--skill-color: ${escapeHtml(item.color)}; --skill-soft: ${escapeHtml(item.softColor)}; --skill-progress: ${percent}%">
-      <span class="learning-map-icon" aria-hidden="true">${escapeHtml(item.icon)}</span>
-      <span class="learning-map-card__body">
-        <span class="learning-map-card__top">
-          <strong>${escapeHtml(item.title)}</strong>
-          <em>${escapeHtml(status)}</em>
-        </span>
-        <span>${escapeHtml(item.description)}</span>
-        <span class="learning-map-progress" aria-hidden="true"><i></i></span>
-        <small>${percent}% complete</small>
+    <div class="spider-map-shell">
+      <div class="spider-chart-wrap">
+        <svg class="spider-chart" viewBox="0 0 ${size} ${size}" role="img" aria-label="Skill progress radar chart">
+          <g class="spider-grid">${grid}</g>
+          <g>${axes}</g>
+          <polygon class="spider-value-area" points="${valuePoints}"></polygon>
+          <g>${markers}</g>
+          <circle class="spider-core" cx="${center}" cy="${center}" r="31"></circle>
+          <text class="spider-core-value" x="${center}" y="${center - 3}" text-anchor="middle">${average}%</text>
+          <text class="spider-core-label" x="${center}" y="${center + 15}" text-anchor="middle">overall</text>
+        </svg>
+      </div>
+      <div class="spider-legend">
+        ${items.map(renderSpiderLegendItem).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderSpiderLegendItem(item) {
+  return `
+    <a class="spider-legend-item" href="${escapeHtml(item.href)}" style="--skill-color: ${escapeHtml(item.color)}; --skill-soft: ${escapeHtml(item.softColor)}">
+      <span class="spider-legend-dot" aria-hidden="true"></span>
+      <span>
+        <strong>${escapeHtml(item.title)}</strong>
+        <small>${escapeHtml(item.description)}</small>
       </span>
+      <em>${escapeHtml(item.status)}</em>
     </a>
   `;
+}
+
+function normalizeMapItem(item) {
+  const percent = item.total > 0 ? Math.round((item.completed / item.total) * 100) : 0;
+  return {
+    ...item,
+    percent,
+    status: item.total > 0 ? `${item.completed}/${item.total}` : item.emptyLabel || "Soon",
+  };
+}
+
+function getSpiderPoints(count, scale, center, radius) {
+  return Array.from({ length: count }, (_, index) => {
+    const point = getSpiderPoint(index, count, scale, center, radius);
+    return `${point.x},${point.y}`;
+  }).join(" ");
+}
+
+function getSpiderPoint(index, count, scale, center, radius) {
+  const angle = -Math.PI / 2 + (index * Math.PI * 2) / count;
+  return {
+    x: Number((center + Math.cos(angle) * radius * scale).toFixed(2)),
+    y: Number((center + Math.sin(angle) * radius * scale).toFixed(2)),
+  };
 }
 
 function getLearningMapItems() {
@@ -241,6 +309,7 @@ function getLearningMapItems() {
   return [
     {
       title: "Listening",
+      axisLabel: "Listen",
       icon: "L",
       description: `${listeningLessons.length || 0} video lessons from TOEIC Parts 1-4`,
       href: "./hoc-phan-chi-tiet.html?course=nghe-doc",
@@ -251,6 +320,7 @@ function getLearningMapItems() {
     },
     {
       title: "Reading",
+      axisLabel: "Read",
       icon: "R",
       description: `${readingLessons.length || 0} video lessons from TOEIC Parts 5-7`,
       href: "./hoc-phan-chi-tiet.html?course=nghe-doc",
@@ -261,6 +331,7 @@ function getLearningMapItems() {
     },
     {
       title: "Speaking",
+      axisLabel: "Speak",
       icon: "S",
       description: `${speakingLessons.length || 0} lessons for TOEIC speaking prompts`,
       href: "./hoc-phan-chi-tiet.html?course=noi-viet",
@@ -271,6 +342,7 @@ function getLearningMapItems() {
     },
     {
       title: "Writing",
+      axisLabel: "Write",
       icon: "W",
       description: writingLessons.length ? `${writingLessons.length} writing lessons ready` : "Writing lessons will appear here when added",
       href: "./hoc-phan-chi-tiet.html?course=noi-viet",
@@ -282,6 +354,7 @@ function getLearningMapItems() {
     },
     {
       title: "Flashcards",
+      axisLabel: "Cards",
       icon: "F",
       description: `${flashcardLessons.length || 0} vocabulary days for quick review`,
       href: "./tu-vung.html",
@@ -292,6 +365,7 @@ function getLearningMapItems() {
     },
     {
       title: "Practice tests",
+      axisLabel: "Tests",
       icon: "P",
       description: `${practiceTests.length || 0} TOEIC drills and mock tests`,
       href: "./luyen-de.html",
