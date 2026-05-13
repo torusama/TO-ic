@@ -10,6 +10,7 @@ import {
   doc,
   getDoc,
   increment,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -77,7 +78,7 @@ export function listenUserProfile(uid, callback, onError = console.warn) {
 
 export function listenActivities(uid, callback, onError = console.warn) {
   if (!db || !uid) return () => {};
-  const ref = query(collection(db, "users", uid, "activities"), orderBy("createdAt", "desc"));
+  const ref = query(collection(db, "users", uid, "activities"), orderBy("createdAt", "desc"), limit(50));
   return onSnapshot(
     ref,
     (snapshot) =>
@@ -108,7 +109,7 @@ export async function completeLesson(user, lesson) {
   const completedRef = doc(db, "users", user.uid, "completedLessons", lessonId);
   const activityRef = doc(collection(db, "users", user.uid, "activities"));
 
-  const todayStr = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+  const todayStr = getTodayKey();
 
   return runTransaction(db, async (transaction) => {
     const existing = await transaction.get(completedRef);
@@ -149,15 +150,26 @@ export async function completeLesson(user, lesson) {
     );
 
     transaction.set(activityRef, {
+      type: "lesson-completed",
       title: "Lesson completed",
       body: lesson.lessonTitle || "",
       courseId: lesson.courseId,
+      courseTitle: lesson.courseTitle || "",
       lessonId: lesson.lessonId,
+      lessonTitle: lesson.lessonTitle || "",
+      createdDateKey: todayStr,
       createdAt: serverTimestamp(),
     });
 
     return true;
   });
+}
+
+function getTodayKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export function getCompletedLessonKey(courseId, lessonId) {

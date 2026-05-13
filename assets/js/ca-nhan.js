@@ -27,6 +27,7 @@ let activeUser = null;
 let activeProfile = normalizeProfile(null, {});
 let activeNotifications = [];
 let activeActivities = [];
+let activeActivityError = "";
 let unsubscribers = [];
 
 setAuthState("signed-out");
@@ -39,6 +40,7 @@ if (!hasFirebaseConfig) {
     activeUser = user;
     activeNotifications = [];
     activeActivities = [];
+    activeActivityError = "";
 
     if (!user) {
       activeProfile = normalizeProfile(null, {});
@@ -78,9 +80,15 @@ if (!hasFirebaseConfig) {
           user.uid,
           (items) => {
             activeActivities = items;
+            activeActivityError = "";
             renderProfile();
           },
-          (error) => console.warn("Could not listen to learning history:", error)
+          (error) => {
+            console.warn("Could not listen to learning history:", error);
+            activeActivityError = "Could not load learning history. Check Firestore rules for this user.";
+            activeActivities = [];
+            renderProfile();
+          }
         ),
       ];
     } catch (error) {
@@ -97,6 +105,7 @@ signOutBtn.addEventListener("click", async () => {
   activeProfile = normalizeProfile(null, {});
   activeNotifications = [];
   activeActivities = [];
+  activeActivityError = "";
   setAuthState("signed-out");
   resetProfile();
   renderProfile();
@@ -192,20 +201,43 @@ function renderProfile() {
   clearNotificationsBtn.disabled = activeNotifications.length === 0;
 
   activityList.classList.toggle("is-empty", activeActivities.length === 0);
-  activityList.innerHTML = activeActivities.length
-    ? activeActivities.map((item) => renderActivityItem(item)).join("")
-    : `<div class="activity-empty">No learning activity yet.</div>`;
+  activityList.innerHTML = activeActivityError
+    ? `<div class="activity-empty activity-empty--error">${escapeHtml(activeActivityError)}</div>`
+    : activeActivities.length
+      ? activeActivities.map((item) => renderActivityItem(item)).join("")
+      : `<div class="activity-empty">No learning activity yet.</div>`;
 }
 
 function renderActivityItem(item) {
   const title = item.title || item.body || "Learning activity";
   const body = item.body && item.title ? `<p>${escapeHtml(item.body)}</p>` : "";
+  const meta = formatActivityMeta(item);
   return `
     <div class="activity-item">
       <strong>${escapeHtml(title)}</strong>
       ${body}
+      ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
     </div>
   `;
+}
+
+function formatActivityMeta(item) {
+  const pieces = [];
+  if (item.courseTitle) pieces.push(item.courseTitle);
+
+  const date = item.createdAt?.toDate?.();
+  if (date) {
+    pieces.push(
+      new Intl.DateTimeFormat(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(date)
+    );
+  } else if (item.createdDateKey) {
+    pieces.push(item.createdDateKey);
+  }
+
+  return pieces.join(" - ");
 }
 
 function setAuthState(state) {
