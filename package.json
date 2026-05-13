@@ -1,0 +1,10 @@
+{
+  "name": "toic-learning",
+  "version": "1.0.0",
+  "description": "TOEIC Learning Platform",
+  "main": "index.html",
+  "scripts": {
+    "build": "node build-config.js"
+  },
+  "devDependencies": {}
+}
