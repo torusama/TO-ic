@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TOEIC Learning - Sign In</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    <link href="https://db.onlinewebfonts.com/c/14936bb7a4b6575fd2eee80a3ab52cc2?family=Feather+Bold" rel="stylesheet" />
+    <link rel="stylesheet" href="./assets/css/styles.css?v=lesson-progress-3" />
+    <script type="module" src="./assets/js/home.js?v=lesson-progress-3"></script>
+  </head>
+  <body class="home-page">
+    <header class="home-topbar">
+      <a class="brand" href="./index.html" aria-label="TOEIC Learning">
+        <img src="https://d35aaqx5ub95lt.cloudfront.net/images/splash/f92d5f2f7d56636846861c458c0d0b6c.svg" alt="" width="140" height="33" />
+        <span class="brand__divider"></span>
+        <span>TOEIC GUIDE</span>
+        <div class="header-streak" id="headerStreak" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 18px; height: 18px; flex-shrink:0;">
+            <path fill="#ff9600" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5Z" />
+            <path fill="#ffc800" d="M9.5 16.3c0-1.1.6-2.1 1.5-2.8.65.95 1.55 1.55 2.3 2.25.72.68 1.1 1.45 1.1 2.3a2.45 2.45 0 0 1-4.9 0v-1.75Z" />
+          </svg>
+          <strong class="streak-val" data-header-streak-val>0</strong>
+        </div>
+      </a>
+    </header>
+
+    <main class="home-shell">
+      <section class="home-hero reveal-on-scroll">
+        <div class="home-copy">
+          <p class="eyebrow">TOEIC Learning</p>
+          <h1>Learn TOEIC with a clear path and synced progress.</h1>
+          <p class="home-lead">Sign in with Google to open courses, vocabulary flashcards, practice tests, and your personal learning profile.</p>
+          <div class="home-actions">
+            <button id="homeGoogleSignInBtn" class="btn btn--primary home-login-btn" type="button">
+              <span>G</span>
+              Start now
+            </button>
+            <a class="home-link" href="#overview">View path</a>
+          </div>
+          <p id="homeAuthStatus" class="home-auth-status">Your learning data syncs with Firebase for each account.</p>
+        </div>
+
+        <div class="home-preview" aria-label="TOEIC learning overview">
+          <div class="home-preview__card home-preview__card--main">
+            <p class="eyebrow">Course</p>
+            <h2>Listening - Reading<br />Speaking - Writing</h2>
+            <div class="home-progress">
+              <span style="width: 68%"></span>
+            </div>
+            <p>Videos, documents, and drills are grouped by TOEIC section.</p>
+          </div>
+          <div class="home-preview__grid">
+            <div class="home-mini-card">
+              <strong>700+</strong>
+              <span>words</span>
+            </div>
+            <div class="home-mini-card">
+              <strong>4</strong>
+              <span>skills</span>
+            </div>
+            <div class="home-mini-card">
+              <strong>4</strong>
+              <span>test parts</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="home-marquee" aria-label="Highlights">
+        <div class="home-marquee__track">
+          <span>Guided TOEIC courses</span>
+          <span>TOEIC vocabulary flashcards</span>
+          <span>Practice by TOEIC part</span>
+          <span>Firebase sync</span>
+          <span>Daily streak tracking</span>
+          <span>Learning notifications</span>
+          <span>Guided TOEIC courses</span>
+          <span>TOEIC vocabulary flashcards</span>
+          <span>Practice by TOEIC part</span>
+          <span>Firebase sync</span>
+          <span>Daily streak tracking</span>
+          <span>Learning notifications</span>
+        </div>
+      </section>
+
+      <section id="overview" class="home-overview reveal-on-scroll">
+        <article>
+          <p class="eyebrow">01</p>
+          <h3>Clear course path</h3>
+          <p>Content is grouped into Speaking - Writing, Listening - Reading, and extra listening practice.</p>
+        </article>
+        <article>
+          <p class="eyebrow">02</p>
+          <h3>Flash cards</h3>
+          <p>Review words by day with personal progress and study status.</p>
+        </article>
+        <article>
+          <p class="eyebrow">03</p>
+          <h3>Private account data</h3>
+          <p>Notifications, activity history, and profile data are saved to Firebase for your Google account.</p>
+        </article>
+      </section>
+
+      <!-- New Sections -->
+      <section class="home-features reveal-on-scroll">
+        <div class="section-header">
+          <p class="eyebrow">Why TOEIC GUIDE?</p>
+          <h2>The world's standard for TOEIC learning</h2>
+        </div>
+        <div class="features-grid">
+          <div class="feature-card">
+            <div class="feature-icon feature-icon--green">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+            </div>
+            <h3>Effective and efficient</h3>
+            <p>Our courses effectively and efficiently teach reading, listening, and speaking skills. Check out our research!</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon feature-icon--blue">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            </div>
+            <h3>Stay motivated</h3>
+            <p>We make it easy to form a habit of language learning, with game-like features, fun challenges, and reminders.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon feature-icon--orange">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+            </div>
+            <h3>Personalized learning</h3>
+            <p>Combining the best of AI and language science, lessons are tailored to help you learn at just the right level and pace.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="home-split reveal-on-scroll">
+        <div class="home-split__content">
+          <p class="eyebrow">Stay on track</p>
+          <h2>Master TOEIC with a streak</h2>
+          <p>Keep your learning streak alive by practicing every day. Build confidence and fluency through consistent daily drills.</p>
+          <button class="btn btn--primary home-login-btn">Get Started</button>
+        </div>
+        <div class="home-split__visual">
+          <div class="ui-mockup ui-mockup--streak">
+               <svg class="streak-flame" viewBox="0 0 24 24" aria-hidden="true" style="width: 80px; height: 80px; margin: 0 auto 16px; display: block;">
+                <path class="streak-flame__main" fill="#ff9600" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5Z" />
+                <path class="streak-flame__core" fill="#ffc800" d="M9.5 16.3c0-1.1.6-2.1 1.5-2.8.65.95 1.55 1.55 2.3 2.25.72.68 1.1 1.45 1.1 2.3a2.45 2.45 0 0 1-4.9 0v-1.75Z" />
+              </svg>
+            <strong class="streak-count">42</strong>
+            <p>Daily Streak</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="home-split home-split--reverse reveal-on-scroll">
+        <div class="home-split__content">
+          <p class="eyebrow">Smart Vocabulary</p>
+          <h2>Flashcards that remember you</h2>
+          <p>Our spaced-repetition system focuses on the words you struggle with most, ensuring you master the 700+ essential TOEIC terms.</p>
+          <button class="btn btn--primary home-login-btn" style="background: var(--blue); box-shadow: 0 4px 0 #1899d6;">Try Flashcards</button>
+        </div>
+        <div class="home-split__visual">
+          <div class="ui-mockup ui-mockup--progress">
+             <div class="progress-item">
+                <div class="progress-bar"><span style="width: 85%"></span></div>
+                <strong>85%</strong>
+             </div>
+             <div class="progress-item">
+                <div class="progress-bar progress-bar--blue"><span style="width: 60%"></span></div>
+                <strong>60%</strong>
+             </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="home-cta-footer reveal-on-scroll">
+        <div class="cta-footer-card">
+          <h2>Ready to boost your score?</h2>
+          <p>Join thousands of learners achieving their target TOEIC scores with our guided paths.</p>
+          <button class="btn btn--primary btn--large home-login-btn">Start Learning for Free</button>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

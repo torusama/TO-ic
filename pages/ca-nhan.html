@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Profile - TOEIC Learning</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    <link href="https://db.onlinewebfonts.com/c/14936bb7a4b6575fd2eee80a3ab52cc2?family=Feather+Bold" rel="stylesheet" />
+    <link rel="stylesheet" href="../assets/css/styles.css?v=lesson-progress-3" />
+    <script type="module" src="../assets/js/auth-guard.js?v=lesson-progress-3"></script>
+    <script type="module" src="../assets/js/layout.js?v=lesson-progress-3"></script>
+    <script type="module" src="../assets/js/ca-nhan.js?v=lesson-progress-3"></script>
+  </head>
+  <body data-page="ca-nhan" class="auth-loading">
+    <div id="site-header"></div>
+    <main class="page-shell">
+      <section class="page-heading profile-heading">
+        <p class="eyebrow">Account</p>
+        <h1>Profile</h1>
+      </section>
+
+      <section id="firebaseNotice" class="firebase-notice" hidden>
+        Firebase is not configured yet. Open <strong>assets/js/firebase-config.js</strong> and add your project settings to enable Google sign-in.
+      </section>
+
+      <section id="profileView" class="profile-dashboard auth-only-signed-in">
+        <section class="profile-overview">
+          <article class="profile-card profile-card--hero">
+            <div class="profile-user">
+              <img id="userAvatar" src="" alt="" />
+              <div>
+                <p class="eyebrow">Learner profile</p>
+                <h2 id="userName">TOEIC Learner</h2>
+                <p id="userEmail"></p>
+              </div>
+            </div>
+            <button id="signOutBtn" class="btn btn--primary" type="button">Sign out</button>
+          </article>
+
+          <article class="streak-card metric-card">
+              <svg class="streak-flame" viewBox="0 0 24 24" aria-hidden="true" style="width: 92px; height: 92px; margin: 0 auto;">
+                <path
+                  class="streak-flame__main"
+                  fill="#ff9600"
+                  d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5Z"
+                />
+                <path class="streak-flame__core" fill="#ffc800" d="M9.5 16.3c0-1.1.6-2.1 1.5-2.8.65.95 1.55 1.55 2.3 2.25.72.68 1.1 1.45 1.1 2.3a2.45 2.45 0 0 1-4.9 0v-1.75Z" />
+              </svg>
+            <div class="streak-stat">
+              <p class="eyebrow">Streak</p>
+              <strong id="streakMetric">0</strong>
+              <span>days in a row</span>
+            </div>
+          </article>
+          <article class="profile-card lessons-card metric-card">
+            <p class="eyebrow">Lessons studied</p>
+            <strong id="lessonsMetric">0</strong>
+            <span>lessons completed</span>
+          </article>
+        </section>
+
+        <section class="profile-compact-grid">
+          <article id="thong-bao" class="profile-card profile-card--scroll profile-card--notifications">
+            <div class="profile-card__head">
+              <div>
+                <p class="eyebrow">Notifications</p>
+                <h3>Your bell</h3>
+              </div>
+              <span id="profileBell" class="bell-large has-unread">
+                <svg class="bell-icon bell-art" viewBox="0 0 24 24" aria-hidden="true">
+                  <path class="bell-art__body" d="M7 10.15C7 6.92 9.14 4.5 12 4.5s5 2.42 5 5.65v1.46c0 .8.21 1.58.6 2.28l.77 1.4c.43.78-.13 1.71-1.02 1.71H6.65c-.89 0-1.45-.93-1.02-1.71l.77-1.4c.39-.7.6-1.48.6-2.28v-1.46Z" />
+                  <path class="bell-art__clapper" d="M9.8 18h4.4a2.2 2.2 0 0 1-4.4 0Z" />
+                  <path class="bell-art__shine" d="M10 7.35c.48-.5 1.17-.78 2-.78.34 0 .62.28.62.62s-.28.62-.62.62c-.49 0-.85.14-1.1.42-.25.27-.4.68-.44 1.23a.62.62 0 1 1-1.24-.08c.05-.84.31-1.52.78-2.03Z" />
+                </svg>
+              </span>
+            </div>
+            <div id="notificationList" class="notification-list"></div>
+            <div class="notification-actions">
+              <button id="markAllReadBtn" type="button">Mark all read</button>
+              <button id="clearNotificationsBtn" type="button">Clear all</button>
+            </div>
+          </article>
+
+          <article class="profile-card profile-card--scroll profile-card--activity">
+            <div class="profile-card__head">
+              <div>
+                <p class="eyebrow">Activity</p>
+                <h3>Recent history</h3>
+              </div>
+            </div>
+            <div id="activityList" class="activity-list"></div>
+          </article>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
