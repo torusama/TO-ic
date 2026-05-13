@@ -9,25 +9,28 @@ import {
 } from "./notification-service.js";
 import {
   ensureUserProfile,
-  listenActivities,
+  getCompletedLessonKey,
+  listenCompletedLessons,
   listenUserProfile,
   normalizeProfile,
   onUserChanged,
   signOutUser,
 } from "./user-service.js";
 
+import "./data.js";
+import "./nghe-doc-data.js";
+
 const firebaseNotice = document.querySelector("#firebaseNotice");
 const signOutBtn = document.querySelector("#signOutBtn");
 const notificationList = document.querySelector("#notificationList");
-const activityList = document.querySelector("#activityList");
+const learningMap = document.querySelector("#learningMap");
 const markAllReadBtn = document.querySelector("#markAllReadBtn");
 const clearNotificationsBtn = document.querySelector("#clearNotificationsBtn");
 
 let activeUser = null;
 let activeProfile = normalizeProfile(null, {});
 let activeNotifications = [];
-let activeActivities = [];
-let activeActivityError = "";
+let activeCompletedLessons = new Set();
 let unsubscribers = [];
 
 setAuthState("signed-out");
@@ -39,8 +42,7 @@ if (!hasFirebaseConfig) {
     cleanupListeners();
     activeUser = user;
     activeNotifications = [];
-    activeActivities = [];
-    activeActivityError = "";
+    activeCompletedLessons = new Set();
 
     if (!user) {
       activeProfile = normalizeProfile(null, {});
@@ -76,17 +78,15 @@ if (!hasFirebaseConfig) {
           },
           (error) => console.warn("Could not listen to notifications:", error)
         ),
-        listenActivities(
+        listenCompletedLessons(
           user.uid,
-          (items) => {
-            activeActivities = items;
-            activeActivityError = "";
+          (lessonIds) => {
+            activeCompletedLessons = lessonIds;
             renderProfile();
           },
           (error) => {
-            console.warn("Could not listen to learning history:", error);
-            activeActivityError = "Could not load learning history. Check Firestore rules for this user.";
-            activeActivities = [];
+            console.warn("Could not listen to completed lessons:", error);
+            activeCompletedLessons = new Set();
             renderProfile();
           }
         ),
@@ -104,8 +104,7 @@ signOutBtn.addEventListener("click", async () => {
   activeUser = null;
   activeProfile = normalizeProfile(null, {});
   activeNotifications = [];
-  activeActivities = [];
-  activeActivityError = "";
+  activeCompletedLessons = new Set();
   setAuthState("signed-out");
   resetProfile();
   renderProfile();
@@ -200,52 +199,140 @@ function renderProfile() {
   markAllReadBtn.disabled = unreadCount === 0;
   clearNotificationsBtn.disabled = activeNotifications.length === 0;
 
-  activityList.classList.toggle("is-empty", activeActivities.length === 0);
-  activityList.innerHTML = activeActivityError
-    ? `<div class="activity-empty activity-empty--error">${escapeHtml(activeActivityError)}</div>`
-    : activeActivities.length
-      ? activeActivities.map((item) => renderActivityItem(item)).join("")
-      : `<div class="activity-empty">No learning activity yet.</div>`;
+  renderLearningMap();
 }
 
-function renderActivityItem(item) {
-  const title = item.title || item.body || "Learning activity";
-  const body = item.body && item.title ? `<p>${escapeHtml(item.body)}</p>` : "";
-  const meta = formatActivityMeta(item);
+function renderLearningMap() {
+  if (!learningMap) return;
+
+  const items = getLearningMapItems();
+  learningMap.innerHTML = items.map((item) => renderLearningMapCard(item)).join("");
+}
+
+function renderLearningMapCard(item) {
+  const percent = item.total > 0 ? Math.round((item.completed / item.total) * 100) : 0;
+  const status = item.total > 0 ? `${item.completed}/${item.total}` : item.emptyLabel || "Soon";
+  const completeClass = item.total > 0 && item.completed >= item.total ? " is-complete" : "";
+
   return `
-    <div class="activity-item">
-      <strong>${escapeHtml(title)}</strong>
-      ${body}
-      ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
-    </div>
+    <a class="learning-map-card${completeClass}" href="${escapeHtml(item.href)}" style="--skill-color: ${escapeHtml(item.color)}; --skill-soft: ${escapeHtml(item.softColor)}; --skill-progress: ${percent}%">
+      <span class="learning-map-icon" aria-hidden="true">${escapeHtml(item.icon)}</span>
+      <span class="learning-map-card__body">
+        <span class="learning-map-card__top">
+          <strong>${escapeHtml(item.title)}</strong>
+          <em>${escapeHtml(status)}</em>
+        </span>
+        <span>${escapeHtml(item.description)}</span>
+        <span class="learning-map-progress" aria-hidden="true"><i></i></span>
+        <small>${percent}% complete</small>
+      </span>
+    </a>
   `;
 }
 
-function formatActivityMeta(item) {
-  const pieces = [];
-  if (item.courseTitle) pieces.push(item.courseTitle);
+function getLearningMapItems() {
+  const listeningLessons = getCourseLessons("nghe-doc", (part) => getPartNumber(part.id) <= 4);
+  const readingLessons = getCourseLessons("nghe-doc", (part) => getPartNumber(part.id) >= 5);
+  const speakingLessons = getCourseLessons("noi-viet", (part) => /speaking|read-text-aloud/i.test(part.id));
+  const writingLessons = getCourseLessons("noi-viet", (part) => /writing/i.test(part.id));
+  const flashcardLessons = window.TOIC_DATA?.vocabCourses?.flatMap((course) => course.lessons || []) || [];
+  const practiceTests = getCourseExercises("nghe-doc");
 
-  const date = item.createdAt?.toDate?.() || getActivityDate(item);
-  if (date) {
-    pieces.push(
-      new Intl.DateTimeFormat(undefined, {
-        dateStyle: "medium",
-        timeStyle: "short",
-      }).format(date)
-    );
-  } else if (item.createdDateKey) {
-    pieces.push(item.createdDateKey);
-  }
-
-  return pieces.join(" - ");
+  return [
+    {
+      title: "Listening",
+      icon: "L",
+      description: `${listeningLessons.length || 0} video lessons from TOEIC Parts 1-4`,
+      href: "./hoc-phan-chi-tiet.html?course=nghe-doc",
+      color: "#ff9600",
+      softColor: "rgba(255, 150, 0, 0.13)",
+      completed: countCompleted("nghe-doc", listeningLessons),
+      total: listeningLessons.length,
+    },
+    {
+      title: "Reading",
+      icon: "R",
+      description: `${readingLessons.length || 0} video lessons from TOEIC Parts 5-7`,
+      href: "./hoc-phan-chi-tiet.html?course=nghe-doc",
+      color: "#1cb0f6",
+      softColor: "rgba(28, 176, 246, 0.13)",
+      completed: countCompleted("nghe-doc", readingLessons),
+      total: readingLessons.length,
+    },
+    {
+      title: "Speaking",
+      icon: "S",
+      description: `${speakingLessons.length || 0} lessons for TOEIC speaking prompts`,
+      href: "./hoc-phan-chi-tiet.html?course=noi-viet",
+      color: "#58cc02",
+      softColor: "rgba(88, 204, 2, 0.14)",
+      completed: countCompleted("noi-viet", speakingLessons),
+      total: speakingLessons.length,
+    },
+    {
+      title: "Writing",
+      icon: "W",
+      description: writingLessons.length ? `${writingLessons.length} writing lessons ready` : "Writing lessons will appear here when added",
+      href: "./hoc-phan-chi-tiet.html?course=noi-viet",
+      color: "#ff4b4b",
+      softColor: "rgba(255, 75, 75, 0.12)",
+      completed: countCompleted("noi-viet", writingLessons),
+      total: writingLessons.length,
+      emptyLabel: "Next",
+    },
+    {
+      title: "Flashcards",
+      icon: "F",
+      description: `${flashcardLessons.length || 0} vocabulary days for quick review`,
+      href: "./tu-vung.html",
+      color: "#ffc800",
+      softColor: "rgba(255, 200, 0, 0.16)",
+      completed: 0,
+      total: flashcardLessons.length,
+    },
+    {
+      title: "Practice tests",
+      icon: "P",
+      description: `${practiceTests.length || 0} TOEIC drills and mock tests`,
+      href: "./luyen-de.html",
+      color: "#8b5cf6",
+      softColor: "rgba(139, 92, 246, 0.12)",
+      completed: 0,
+      total: practiceTests.length,
+    },
+  ];
 }
 
-function getActivityDate(item) {
-  const timestamp = Number(item.createdAtMs || 0);
-  if (timestamp > 0) return new Date(timestamp);
+function getCourseLessons(courseId, partFilter = () => true) {
+  const course = getCourse(courseId);
+  if (!course) return [];
+  if (!course.parts?.length) return (course.lessons || []).filter((item) => !item.isExercise);
 
-  const parsed = Date.parse(item.createdAtIso || "");
-  return Number.isNaN(parsed) ? null : new Date(parsed);
+  return course.parts
+    .filter(partFilter)
+    .flatMap((part) => part.items || [])
+    .filter((item) => !item.isExercise);
+}
+
+function getCourseExercises(courseId) {
+  const course = getCourse(courseId);
+  if (!course) return [];
+  if (!course.parts?.length) return (course.lessons || []).filter((item) => item.isExercise);
+
+  return course.parts.flatMap((part) => part.items || []).filter((item) => item.isExercise);
+}
+
+function getCourse(courseId) {
+  return window.TOIC_DATA?.courses?.find((course) => course.id === courseId) || null;
+}
+
+function getPartNumber(partId) {
+  const match = String(partId || "").match(/part-(\d+)/);
+  return match ? Number(match[1]) : 0;
+}
+
+function countCompleted(courseId, items) {
+  return items.filter((item) => activeCompletedLessons.has(getCompletedLessonKey(courseId, item.id))).length;
 }
 
 function setAuthState(state) {
