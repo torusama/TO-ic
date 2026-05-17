@@ -61,6 +61,37 @@
           </article>
         </section>
 
+        <section class="profile-email-grid">
+          <article class="profile-card email-settings-card">
+            <div class="profile-card__head">
+              <div>
+                <p class="eyebrow">Email</p>
+                <h3>AI mail coach</h3>
+              </div>
+              <span class="email-sender-pill">azotatoeic@gmail.com</span>
+            </div>
+            <div class="email-setting-list">
+              <label class="email-toggle">
+                <input id="emailStudyReminders" type="checkbox" checked />
+                <span class="email-toggle__control" aria-hidden="true"></span>
+                <span>
+                  <strong>Streak reminders</strong>
+                  <small>Daily study nudges when today's lesson is missing.</small>
+                </span>
+              </label>
+              <label class="email-toggle">
+                <input id="emailNewLessonAlerts" type="checkbox" checked />
+                <span class="email-toggle__control" aria-hidden="true"></span>
+                <span>
+                  <strong>New lesson alerts</strong>
+                  <small>Announcements when a fresh TOEIC lesson is posted.</small>
+                </span>
+              </label>
+            </div>
+            <p id="emailSettingsStatus" class="email-settings-status">Mail will be sent from azotatoeic@gmail.com.</p>
+          </article>
+        </section>
+
         <section class="profile-compact-grid">
           <article id="thong-bao" class="profile-card profile-card--scroll profile-card--notifications">
             <div class="profile-card__head">
@@ -92,6 +123,28 @@
               <a class="learning-map-link" href="./hoc-phan.html">Courses</a>
             </div>
             <div id="learningMap" class="learning-map" aria-label="Learning roadmap"></div>
+          </article>
+        </section>
+
+        <section class="profile-chart-grid">
+          <article class="profile-card profile-card--skill-chart profile-card--pie-chart">
+            <div class="profile-card__head">
+              <div>
+                <p class="eyebrow">Skill share</p>
+                <h3>Skills</h3>
+              </div>
+            </div>
+            <div id="skillPieChart" class="skill-chart-canvas" aria-label="Skill share chart"></div>
+          </article>
+
+          <article class="profile-card profile-card--skill-chart profile-card--combo-chart">
+            <div class="profile-card__head">
+              <div>
+                <p class="eyebrow">Progress</p>
+                <h3>Bar & line</h3>
+              </div>
+            </div>
+            <div id="skillComboChart" class="skill-chart-canvas" aria-label="Skill progress chart"></div>
           </article>
         </section>
       </section>

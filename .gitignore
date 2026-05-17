@@ -47,6 +47,9 @@ dist/
 
 # dotenv environment variables files
 .env
+.env.*
+!.env.example
+!.env.vercel.example
 .env.test
 .env.production
 .env.local
@@ -66,3 +69,10 @@ Thumbs.db
 # If you want to be extra safe, ignore the real config file.
 # You will need to manually provide this on your hosting platform.
 assets/js/firebase-config.js
+
+# SENSITIVE: service accounts and private keys
+*firebase-adminsdk*.json
+*service-account*.json
+*serviceAccount*.json
+*.pem
+*.key

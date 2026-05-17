@@ -21,6 +21,7 @@ import {
 
 const defaultStats = { streak: 0, lessons: 0 };
 const defaultLearning = { recentCourse: "None yet", recentLesson: "None yet" };
+const defaultEmailPreferences = { studyReminders: true, newLessonAlerts: true };
 
 export function onUserChanged(callback) {
   if (!auth) {
@@ -38,6 +39,21 @@ export async function signInWithGoogle() {
 export async function signOutUser() {
   if (!auth) return;
   await signOut(auth);
+}
+
+export async function updateEmailPreferences(uid, preferences = {}) {
+  if (!db || !uid) return false;
+
+  await setDoc(
+    doc(db, "users", uid),
+    {
+      emailPreferences: normalizeEmailPreferences(preferences),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  return true;
 }
 
 export async function ensureUserProfile(user) {
@@ -58,6 +74,7 @@ export async function ensureUserProfile(user) {
       provider: "google.com",
       stats: profile.stats,
       learning: profile.learning,
+      emailPreferences: profile.emailPreferences,
       createdAt: stored.createdAt || serverTimestamp(),
       updatedAt: serverTimestamp(),
     },
@@ -331,6 +348,14 @@ export function normalizeProfile(user, stored = {}) {
       lessons: Number(stored.stats?.lessons || defaultStats.lessons),
     },
     learning: { ...defaultLearning, ...(stored.learning || {}) },
+    emailPreferences: normalizeEmailPreferences(stored.emailPreferences),
+  };
+}
+
+function normalizeEmailPreferences(value = {}) {
+  return {
+    studyReminders: value.studyReminders !== false && defaultEmailPreferences.studyReminders,
+    newLessonAlerts: value.newLessonAlerts !== false && defaultEmailPreferences.newLessonAlerts,
   };
 }
 

@@ -3,5 +3,16 @@
   "outputDirectory": "dist",
   "cleanUrls": true,
   "trailingSlash": false,
-  "rewrites": []
+  "rewrites": [],
+  "functions": {
+    "api/mail-worker.js": {
+      "maxDuration": 60
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/mail-worker",
+      "schedule": "0 13 * * *"
+    }
+  ]
 }
