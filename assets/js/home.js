@@ -28,7 +28,7 @@ if (!hasFirebaseConfig) {
         window.location.href = nextUrl;
       } catch (error) {
         console.warn("Google sign-in failed:", error);
-        if (statusText) statusText.textContent = "Sign-in did not finish. Check the popup or Firebase settings.";
+        if (statusText) statusText.textContent = getSignInErrorMessage(error);
         btn.disabled = false;
       }
     });
@@ -43,6 +43,26 @@ function getNextUrl() {
   if (next.startsWith("pages/")) return `./${next}`;
   if (next.startsWith("./pages/")) return next;
   return `./pages/${next.replace(/^\.?\//, "")}`;
+}
+
+function getSignInErrorMessage(error) {
+  const code = error?.code || "";
+  if (code === "auth/unauthorized-domain") {
+    return `This domain is not allowed in Firebase Auth: ${window.location.hostname}. Open localhost or add this domain in Authorized domains.`;
+  }
+  if (code === "auth/operation-not-allowed") {
+    return "Google sign-in is not enabled in Firebase Authentication.";
+  }
+  if (code === "auth/popup-blocked") {
+    return "The Google sign-in popup was blocked by the browser.";
+  }
+  if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+    return "Google sign-in was closed before it finished.";
+  }
+  if (code === "auth/network-request-failed") {
+    return "Network error while connecting to Google sign-in.";
+  }
+  return code ? `Google sign-in failed: ${code}` : "Sign-in did not finish. Check the popup or Firebase settings.";
 }
 
 // Scroll Reveal Animation
