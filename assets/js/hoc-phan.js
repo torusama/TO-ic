@@ -1,8 +1,7 @@
-import "./data.js";
-import "./nghe-doc-data.js";
+import { loadCourseSummaries } from "./course-service.js";
 
-(function () {
-  const { courses } = window.TOIC_DATA;
+(async function () {
+  const courses = await loadCourseSummaries();
   const panels = document.querySelector("#course-panels");
 
   panels.innerHTML = courses

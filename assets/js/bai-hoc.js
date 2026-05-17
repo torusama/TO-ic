@@ -1,20 +1,23 @@
 import { completeLesson, listenCompletedLessons, onUserChanged, getCompletedLessonKey, getTimerProgress, saveTimerProgress, clearTimerProgress, recordLessonActivity } from "./user-service.js";
+import { loadCourseWithLessons } from "./course-service.js";
 
-import "./data.js";
-import "./nghe-doc-data.js";
-
-(function () {
+(async function () {
   const COMPLETION_MINUTES = 30;
   const params = new URLSearchParams(window.location.search);
   const courseId = params.get("course");
   const lessonId = params.get("lesson");
-  const { courses } = window.TOIC_DATA;
-  const course = courses.find((item) => item.id === courseId) || courses[0];
+  const course = await loadCourseWithLessons(courseId);
+  const breadcrumb = document.querySelector("#lesson-breadcrumb");
+  const learning = document.querySelector("#lesson-learning");
+
+  if (!course) {
+    learning.innerHTML = `<section class="lesson-doc-card"><strong>Course data is not available yet.</strong></section>`;
+    return;
+  }
+
   const items = course.parts?.length ? course.parts.flatMap((part) => part.items) : course.lessons || [];
   const lesson = items.find((item) => item.id === lessonId && !item.isExercise) || items.find((item) => !item.isExercise) || items[0];
   const lessonNumber = items.filter((item) => !item.isExercise).findIndex((item) => item.id === lesson?.id) + 1;
-  const breadcrumb = document.querySelector("#lesson-breadcrumb");
-  const learning = document.querySelector("#lesson-learning");
   const completionKey = getCompletedLessonKey(course.id, lesson?.id);
 
   let activeUser = null;

@@ -8,7 +8,8 @@
     "dev": "vite --host 0.0.0.0",
     "prebuild": "node build-config.js",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "migrate:firestore": "node scripts/migrate-courses-to-firestore.js"
   },
   "devDependencies": {
     "vite": "^8.0.12"

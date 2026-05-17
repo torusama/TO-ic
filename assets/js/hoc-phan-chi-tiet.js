@@ -1,18 +1,20 @@
 import { getCompletedLessonKey, listenCompletedLessons, onUserChanged, recordLessonActivity } from "./user-service.js";
+import { loadCourseWithLessons } from "./course-service.js";
 
-import "./data.js";
-import "./nghe-doc-data.js";
-
-(function () {
+(async function () {
   const params = new URLSearchParams(window.location.search);
   const courseId = params.get("course");
-  const { courses } = window.TOIC_DATA;
-  const course = courses.find((item) => item.id === courseId) || courses[0];
+  const course = await loadCourseWithLessons(courseId);
   const breadcrumb = document.querySelector("#course-breadcrumb");
   const detail = document.querySelector("#course-detail");
   let completedLessons = new Set();
   let activeUser = null;
   let unsubscribeCompletedLessons = () => {};
+
+  if (!course) {
+    detail.innerHTML = `<section class="content-card"><strong>Course data is not available yet.</strong></section>`;
+    return;
+  }
 
   const parts = course.parts?.length
     ? course.parts
