@@ -2067,8 +2067,9 @@ a {
 }
 
 .lessons-card {
+  position: relative;
   display: grid;
-  grid-template-rows: 24px 38px 70px 24px;
+  grid-template-rows: 24px 70px 24px;
   gap: 6px;
   align-content: center;
   align-items: center;
@@ -2079,18 +2080,39 @@ a {
 }
 
 .friend-open-btn {
+  position: absolute;
+  right: -1px;
+  top: 50%;
+  transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 34px;
-  border: 2px solid rgba(28, 176, 246, 0.22);
-  border-radius: 12px;
-  background: rgba(28, 176, 246, 0.08);
-  color: var(--blue);
-  padding: 0 12px;
-  font-size: 12px;
+  min-height: 42px;
+  border: 2.5px solid #fff;
+  border-radius: 14px;
+  background: var(--green);
+  color: #fff;
+  padding: 0 16px;
+  font-size: 13px;
   font-weight: 900;
   text-transform: uppercase;
+  letter-spacing: 0.5px;
+  box-shadow: 0 4px 14px rgba(88, 204, 2, 0.35);
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  z-index: 2;
+  writing-mode: horizontal-tb;
+}
+
+.friend-open-btn:hover {
+  transform: translateY(-50%) scale(1.07);
+  box-shadow: 0 6px 20px rgba(88, 204, 2, 0.45);
+  background: var(--green-hover);
+}
+
+.friend-open-btn:active {
+  transform: translateY(-50%) scale(0.97);
+  box-shadow: 0 2px 8px rgba(88, 204, 2, 0.3);
 }
 
 .lessons-card strong {
@@ -2210,11 +2232,112 @@ body.modal-open {
   box-shadow: 0 0 0 4px rgba(28, 176, 246, 0.1);
 }
 
-.friend-modal-grid {
+.friend-card-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.16fr) minmax(260px, 0.84fr);
-  gap: 16px;
-  min-height: 410px;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(88, 204, 2, 0.4) transparent;
+}
+
+.friend-card-grid::-webkit-scrollbar {
+  width: 6px;
+}
+
+.friend-card-grid::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.friend-card-grid::-webkit-scrollbar-thumb {
+  border-radius: 99px;
+  background: rgba(88, 204, 2, 0.35);
+}
+
+.friend-card {
+  display: flex;
+  flex-direction: column;
+  border: 2px solid var(--border-color);
+  border-radius: 16px;
+  background: #fff;
+  overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.friend-card:hover {
+  border-color: rgba(88, 204, 2, 0.35);
+  box-shadow: 0 8px 24px rgba(88, 204, 2, 0.12);
+  transform: translateY(-2px);
+}
+
+.friend-card__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: linear-gradient(180deg, rgba(88, 204, 2, 0.06), #fff 70%);
+  padding: 18px 14px 12px;
+  cursor: pointer;
+  text-align: center;
+  width: 100%;
+}
+
+.friend-card__avatar {
+  width: 56px;
+  height: 56px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 6px 16px rgba(16, 15, 62, 0.12);
+}
+
+.friend-card__name {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--dark-blue);
+  font-size: 14px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+
+.friend-card__stats {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.friend-card__stats span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--gray-light);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.friend-card__stats strong {
+  color: var(--dark-blue);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.friend-card__action {
+  display: flex;
+  justify-content: center;
+  padding: 0 14px 14px;
+}
+
+.friend-card__action .friend-chip-btn {
+  width: 100%;
+  min-height: 36px;
+  border-radius: 10px;
+  font-size: 11px;
 }
 
 .friend-section-head {
@@ -2236,82 +2359,6 @@ body.modal-open {
   color: var(--gray-light);
   font-size: 12px;
   font-weight: 900;
-}
-
-.friend-list {
-  display: grid;
-  gap: 10px;
-  max-height: 430px;
-  overflow-y: auto;
-  padding-right: 4px;
-  scrollbar-color: rgba(88, 204, 2, 0.72) rgba(88, 204, 2, 0.1);
-  scrollbar-width: thin;
-}
-
-.friend-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  border: 2px solid var(--border-color);
-  border-radius: 14px;
-  background: #fff;
-  padding: 10px;
-  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
-}
-
-.friend-row:hover,
-.friend-row.is-selected {
-  border-color: rgba(88, 204, 2, 0.36);
-  background: rgba(88, 204, 2, 0.05);
-}
-
-.friend-row__main {
-  display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  text-align: left;
-}
-
-.friend-avatar,
-.friend-profile-avatar,
-.edit-avatar-row img {
-  border: 3px solid #fff;
-  border-radius: 50%;
-  object-fit: cover;
-  box-shadow: 0 8px 20px rgba(16, 15, 62, 0.12);
-}
-
-.friend-avatar {
-  width: 48px;
-  height: 48px;
-}
-
-.friend-meta {
-  display: grid;
-  min-width: 0;
-}
-
-.friend-meta strong {
-  overflow: hidden;
-  color: var(--dark-blue);
-  font-weight: 900;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.friend-meta small {
-  overflow: hidden;
-  color: var(--gray-light);
-  font-size: 12px;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .friend-actions,
@@ -2337,6 +2384,18 @@ body.modal-open {
   font-size: 12px;
   font-weight: 900;
   text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.friend-chip-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(88, 204, 2, 0.25);
+}
+
+.friend-chip-btn:active {
+  transform: translateY(1px);
+  box-shadow: none;
 }
 
 .friend-chip-btn--ghost {
@@ -2354,32 +2413,73 @@ body.modal-open {
 }
 
 .friend-profile-preview {
+  position: relative;
   display: grid;
   gap: 14px;
-  min-height: 340px;
-  border: 2px solid rgba(28, 176, 246, 0.18);
+  border: 2px solid rgba(88, 204, 2, 0.25);
   border-radius: 16px;
-  background: linear-gradient(180deg, rgba(28, 176, 246, 0.08), #fff 58%);
-  padding: 16px;
+  background: linear-gradient(180deg, rgba(88, 204, 2, 0.06), #fff 50%);
+  padding: 20px;
+  margin-top: 6px;
+  animation: friendPreviewSlide 0.28s ease;
+}
+
+@keyframes friendPreviewSlide {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.friend-preview-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--border-color);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--gray-light);
+  font-size: 20px;
+  font-weight: 900;
+  cursor: pointer;
+  line-height: 1;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.friend-preview-close:hover {
+  border-color: rgba(255, 75, 75, 0.4);
+  color: var(--red);
 }
 
 .friend-profile-hero {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
+  grid-template-columns: 64px minmax(0, 1fr);
   gap: 14px;
   align-items: center;
 }
 
 .friend-profile-avatar {
-  width: 72px;
-  height: 72px;
+  width: 64px;
+  height: 64px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 6px 16px rgba(16, 15, 62, 0.12);
 }
 
 .friend-profile-hero h3 {
   overflow-wrap: anywhere;
   margin: 0;
   color: var(--dark-blue);
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 900;
 }
 
@@ -2398,7 +2498,7 @@ body.modal-open {
 .friend-stats span {
   display: grid;
   place-items: center;
-  min-height: 82px;
+  min-height: 72px;
   border: 2px solid var(--border-color);
   border-radius: 14px;
   background: #fff;
@@ -2411,7 +2511,7 @@ body.modal-open {
 .friend-stats strong {
   display: block;
   color: var(--dark-blue);
-  font-size: 32px;
+  font-size: 28px;
   line-height: 1;
 }
 
@@ -2465,6 +2565,10 @@ body.modal-open {
 .edit-avatar-row img {
   width: 86px;
   height: 86px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 8px 20px rgba(16, 15, 62, 0.12);
 }
 
 .avatar-upload-btn {

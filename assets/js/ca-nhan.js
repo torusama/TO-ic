@@ -1,4 +1,4 @@
-﻿import { hasFirebaseConfig } from "./firebase-app.js";
+import { hasFirebaseConfig } from "./firebase-app.js";
 import {
   clearNotifications,
   deleteNotification,
@@ -406,7 +406,8 @@ async function handleFriendAction(event) {
 
   if (viewBtn) {
     selectedFriendProfile = profile;
-    renderFriendLists();
+    renderFriendProfilePreview();
+    friendProfilePreview?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     return;
   }
 
@@ -435,29 +436,35 @@ function renderFriendLists() {
 
   if (!friendProfiles.length) {
     friendResults.innerHTML = `<div class="friend-empty">No learners found yet.</div>`;
-    renderFriendProfilePreview();
+    if (friendProfilePreview) friendProfilePreview.hidden = true;
     return;
   }
 
-  friendResults.innerHTML = friendProfiles.map(renderFriendRow).join("");
-  renderFriendProfilePreview();
+  friendResults.innerHTML = friendProfiles.map(renderFriendCard).join("");
+
+  if (selectedFriendProfile) {
+    renderFriendProfilePreview();
+  } else if (friendProfilePreview) {
+    friendProfilePreview.hidden = true;
+  }
 }
 
-function renderFriendRow(profile) {
+function renderFriendCard(profile) {
   const isFollowing = activeFollowing.has(profile.uid);
-  const isSelected = selectedFriendProfile?.uid === profile.uid;
+  const lessons = Number(profile.stats?.lessons || 0);
+  const streak = Number(profile.stats?.streak || 0);
 
   return `
-    <article class="friend-row ${isSelected ? "is-selected" : ""}">
-      <button class="friend-row__main" type="button" data-view-uid="${escapeHtml(profile.uid)}">
-        <img class="friend-avatar" src="${escapeHtml(getAvatarUrl(profile))}" alt="" />
-        <span class="friend-meta">
-          <strong>${escapeHtml(profile.displayName)}</strong>
-          <small>${escapeHtml(formatEmailHint(profile.email))}</small>
-        </span>
+    <article class="friend-card">
+      <button class="friend-card__body" type="button" data-view-uid="${escapeHtml(profile.uid)}">
+        <img class="friend-card__avatar" src="${escapeHtml(getAvatarUrl(profile))}" alt="" />
+        <strong class="friend-card__name">${escapeHtml(profile.displayName)}</strong>
+        <div class="friend-card__stats">
+          <span>🔥 <strong>${streak}</strong></span>
+          <span>📚 <strong>${lessons}</strong></span>
+        </div>
       </button>
-      <div class="friend-actions">
-        <button class="friend-chip-btn friend-chip-btn--ghost" type="button" data-view-uid="${escapeHtml(profile.uid)}">View</button>
+      <div class="friend-card__action">
         ${renderFollowButton(profile, isFollowing)}
       </div>
     </article>
@@ -468,7 +475,7 @@ function renderFriendProfilePreview() {
   if (!friendProfilePreview) return;
 
   if (!selectedFriendProfile) {
-    friendProfilePreview.innerHTML = `<div class="friend-empty">Pick a learner to preview their profile.</div>`;
+    friendProfilePreview.hidden = true;
     return;
   }
 
@@ -476,10 +483,12 @@ function renderFriendProfilePreview() {
   const isFollowing = activeFollowing.has(profile.uid);
   const lessons = Number(profile.stats?.lessons || 0);
   const streak = Number(profile.stats?.streak || 0);
-  const recentLesson = profile.learning?.recentLesson || "No lesson flex yet";
-  const recentCourse = profile.learning?.recentCourse || "No course yet";
+  const recentLesson = profile.learning?.recentLesson || "None yet";
+  const recentCourse = profile.learning?.recentCourse || "None yet";
 
+  friendProfilePreview.hidden = false;
   friendProfilePreview.innerHTML = `
+    <button class="friend-preview-close" type="button" data-close-preview aria-label="Close preview">&times;</button>
     <div class="friend-profile-hero">
       <img class="friend-profile-avatar" src="${escapeHtml(getAvatarUrl(profile))}" alt="" />
       <div>
@@ -500,6 +509,11 @@ function renderFriendProfilePreview() {
       ${renderFollowButton(profile, isFollowing)}
     </div>
   `;
+
+  friendProfilePreview.querySelector("[data-close-preview]")?.addEventListener("click", () => {
+    selectedFriendProfile = null;
+    friendProfilePreview.hidden = true;
+  });
 }
 
 function renderFollowButton(profile, isFollowing) {

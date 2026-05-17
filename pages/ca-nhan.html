@@ -167,22 +167,12 @@
             <span>Search by display name</span>
             <input id="friendSearchInput" type="search" placeholder="Type a friend's name..." autocomplete="off" />
           </label>
-          <div class="friend-modal-grid">
-            <section>
-              <div class="friend-section-head">
-                <h3>Results</h3>
-                <small id="friendSearchStatus">Suggested learners</small>
-              </div>
-              <div id="friendResults" class="friend-list"></div>
-            </section>
-            <section>
-              <div class="friend-section-head">
-                <h3>Profile</h3>
-                <small>Public view</small>
-              </div>
-              <div id="friendProfilePreview" class="friend-profile-preview"></div>
-            </section>
+          <div class="friend-section-head">
+            <h3>Results</h3>
+            <small id="friendSearchStatus">Suggested learners</small>
           </div>
+          <div id="friendResults" class="friend-card-grid"></div>
+          <div id="friendProfilePreview" class="friend-profile-preview" hidden></div>
         </article>
       </section>
 
