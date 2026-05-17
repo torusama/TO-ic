@@ -2,6 +2,17 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isAllowedCourseEmail() {
+      return request.auth != null
+        && request.auth.token.email in [
+          "2454112132tuyen@ou.edu.vn",
+          "doyouknow.nis@gmail.com",
+          "nguyentrthnhquynh2801@gmail.com",
+          "nttthao006@gmail.com",
+          "vtanfit001@gmail.com"
+        ];
+    }
+
     match /users/{uid} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
 
@@ -32,11 +43,11 @@ service cloud.firestore {
     }
 
     match /courses/{courseId} {
-      allow read: if request.auth != null;
+      allow read: if isAllowedCourseEmail();
       allow write: if false;
 
       match /lessons/{lessonId} {
-        allow read: if request.auth != null;
+        allow read: if isAllowedCourseEmail();
         allow write: if false;
       }
     }

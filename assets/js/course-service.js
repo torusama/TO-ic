@@ -6,6 +6,7 @@ import {
   getDocs,
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+import { hasCourseAccess } from "./access-control.js";
 
 export async function loadCourseSummaries() {
   if (!db) return [];
@@ -13,6 +14,7 @@ export async function loadCourseSummaries() {
   try {
     const user = await waitForSignedInUser();
     if (!user) return [];
+    if (!hasCourseAccess(user)) return [];
 
     const snapshot = await getDocs(collection(db, "courses"));
     const courses = snapshot.docs
@@ -33,6 +35,7 @@ export async function loadCourseWithLessons(courseId) {
   try {
     const user = await waitForSignedInUser();
     if (!user) return null;
+    if (!hasCourseAccess(user)) return null;
 
     let selectedId = courseId;
     if (!selectedId) {

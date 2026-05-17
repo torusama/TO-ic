@@ -1,7 +1,14 @@
 import { completeLesson, listenCompletedLessons, onUserChanged, getCompletedLessonKey, getTimerProgress, saveTimerProgress, clearTimerProgress, recordLessonActivity } from "./user-service.js";
 import { loadCourseWithLessons } from "./course-service.js";
+import { renderCourseUnavailable, requireCourseAccess } from "./access-control.js";
 
 (async function () {
+  const access = await requireCourseAccess();
+  if (!access.allowed) {
+    renderCourseUnavailable();
+    return;
+  }
+
   const COMPLETION_MINUTES = 30;
   const params = new URLSearchParams(window.location.search);
   const courseId = params.get("course");
@@ -11,7 +18,7 @@ import { loadCourseWithLessons } from "./course-service.js";
   const learning = document.querySelector("#lesson-learning");
 
   if (!course) {
-    learning.innerHTML = `<section class="lesson-doc-card"><strong>Course data is not available yet.</strong></section>`;
+    renderCourseUnavailable();
     return;
   }
 

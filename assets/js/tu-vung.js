@@ -1,3 +1,5 @@
+import { renderCourseUnavailable, requireCourseAccess } from "./access-control.js";
+
 const vocabParts = [
   {
     title: "TUYỂN CHỌN KỸ LƯỠNG 1500 TỪ VỰNG TOEIC THƯỜNG XUYÊN THI",
@@ -34,7 +36,13 @@ const vocabParts = [
   },
 ];
 
-(function () {
+(async function () {
+  const access = await requireCourseAccess();
+  if (!access.allowed) {
+    renderCourseUnavailable();
+    return;
+  }
+
   const target = document.querySelector("#vocabParts");
   if (!target) return;
 

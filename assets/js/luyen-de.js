@@ -1,4 +1,12 @@
-(function () {
+import { renderCourseUnavailable, requireCourseAccess } from "./access-control.js";
+
+(async function () {
+  const access = await requireCourseAccess();
+  if (!access.allowed) {
+    renderCourseUnavailable();
+    return;
+  }
+
   const target = document.querySelector("#empty-tests");
   if (!target) return;
 

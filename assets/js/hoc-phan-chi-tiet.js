@@ -1,7 +1,14 @@
 import { getCompletedLessonKey, listenCompletedLessons, onUserChanged, recordLessonActivity } from "./user-service.js";
 import { loadCourseWithLessons } from "./course-service.js";
+import { renderCourseUnavailable, requireCourseAccess } from "./access-control.js";
 
 (async function () {
+  const access = await requireCourseAccess();
+  if (!access.allowed) {
+    renderCourseUnavailable();
+    return;
+  }
+
   const params = new URLSearchParams(window.location.search);
   const courseId = params.get("course");
   const course = await loadCourseWithLessons(courseId);
@@ -12,7 +19,7 @@ import { loadCourseWithLessons } from "./course-service.js";
   let unsubscribeCompletedLessons = () => {};
 
   if (!course) {
-    detail.innerHTML = `<section class="content-card"><strong>Course data is not available yet.</strong></section>`;
+    renderCourseUnavailable();
     return;
   }
 
