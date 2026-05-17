@@ -25,6 +25,7 @@ export async function requireCourseAccess() {
 export function renderCourseUnavailable(root = document.querySelector("main")) {
   if (!root) return;
 
+  root.classList.add("access-unavailable-shell");
   root.innerHTML = `
     <section class="access-unavailable" aria-live="polite">
       <strong>Khóa học không khả dụng</strong>

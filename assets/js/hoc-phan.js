@@ -12,11 +12,7 @@ import { renderCourseUnavailable, requireCourseAccess } from "./access-control.j
   const panels = document.querySelector("#course-panels");
 
   if (!courses.length) {
-    panels.innerHTML = `
-      <article class="empty-page">
-        <strong>Khóa học không khả dụng</strong>
-      </article>
-    `;
+    renderCourseUnavailable();
     return;
   }
 
