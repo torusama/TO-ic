@@ -1,5 +1,6 @@
 import { ensureDefaultNotifications, deleteNotification, listenNotifications, markNotificationRead } from "./notification-service.js";
-import { ensureUserProfile, onUserChanged } from "./user-service.js";
+import { claimStreakAnimation, ensureUserProfile, listenUserProfile, onUserChanged } from "./user-service.js";
+import { rollStreakNumber, setStreakNumber } from "./streak-animation.js";
 
 const currentPage = document.body.dataset.page;
 const links = [
@@ -13,7 +14,9 @@ const header = document.querySelector("#site-header");
 let activeUser = null;
 let notifications = [];
 let unsubscribeNotifications = () => {};
+let unsubscribeHeaderProfile = () => {};
 let closeTimer;
+const checkedHeaderAnimations = new Set();
 
 if (header) {
   header.innerHTML = `
@@ -86,8 +89,10 @@ if (header) {
   onUserChanged(async (user) => {
     activeUser = user;
     unsubscribeNotifications();
+    unsubscribeHeaderProfile();
     notifications = [];
     renderNotifications();
+    renderHeaderStreak(null);
 
     if (!user) return;
 
@@ -107,14 +112,12 @@ if (header) {
         }
       );
 
-      const headerStreak = header.querySelector("#headerStreak");
-      const streakVal = header.querySelector("[data-header-streak-val]");
-      if (headerStreak && streakVal) {
-        headerStreak.style.display = user ? "flex" : "none";
-        if (user && profile) {
-          streakVal.textContent = profile.stats?.streak || 0;
-        }
-      }
+      renderHeaderStreak(profile);
+      unsubscribeHeaderProfile = listenUserProfile(
+        user.uid,
+        (nextProfile) => renderHeaderStreak(nextProfile),
+        (error) => console.warn("Could not listen to header profile:", error)
+      );
     } catch (error) {
       console.warn("Could not initialize notification data:", error);
     }
@@ -209,6 +212,30 @@ if (header) {
       popover.hidden = true;
       if (focusBell) bell.focus();
     }, 180);
+  }
+
+  async function renderHeaderStreak(profile) {
+    const headerStreak = header.querySelector("#headerStreak");
+    const streakVal = header.querySelector("[data-header-streak-val]");
+    if (!headerStreak || !streakVal) return;
+
+    headerStreak.style.display = activeUser ? "flex" : "none";
+    const streak = Number(profile?.stats?.streak || 0);
+
+    const lastStreakDate = profile?.stats?.lastStreakDate || "";
+    const checkKey = `${activeUser?.uid || "guest"}__${lastStreakDate}__${streak}`;
+    if (!activeUser || !lastStreakDate || streak <= 0 || checkedHeaderAnimations.has(checkKey)) {
+      setStreakNumber(streakVal, streak);
+      return;
+    }
+
+    checkedHeaderAnimations.add(checkKey);
+    const claim = await claimStreakAnimation(activeUser.uid, "header");
+    if (claim.shouldAnimate) {
+      rollStreakNumber(streakVal, claim.from, claim.to);
+    } else {
+      setStreakNumber(streakVal, streak);
+    }
   }
 }
 

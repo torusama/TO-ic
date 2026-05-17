@@ -7,7 +7,7 @@ This path keeps Firebase on the free Spark plan. Firebase still stores users, st
 - Frontend: Vite app on Vercel.
 - Data: Firebase Auth + Firestore Spark.
 - Mail worker: `api/mail-worker.js` on Vercel.
-- Schedule: Vercel Cron calls `/api/mail-worker` every day at `13:00 UTC` (`20:00 Asia/Bangkok`).
+- Schedule: Vercel Cron calls `/api/starter-mail-worker` at `01:00 UTC` (`08:00 Asia/Bangkok`) for users with no streak, and `/api/mail-worker` at `11:00 UTC` (`18:00 Asia/Bangkok`) for streak rescue + announcements.
 - Sender: `azotatoeic@gmail.com` through a Gmail App Password.
 - AI copywriter: Groq by default, Gemini also supported.
 
@@ -52,12 +52,21 @@ Vercel calls:
 /api/mail-worker
 ```
 
-The route sends streak reminders to users who:
+The route sends 18:00 streak reminders to users who:
 
 - have an email,
 - did not complete a lesson today,
 - have `emailPreferences.studyReminders !== false`,
 - have not already received today's reminder.
+- had an active streak yesterday, if their streak is still alive.
+
+Vercel also calls:
+
+```text
+/api/starter-mail-worker
+```
+
+This route sends the earliest daily nudge to users who do not have an active streak yet. If a user misses a full day, the worker resets `stats.streak` to `0` before deciding which reminder fits.
 
 ## New Lesson Announcement
 
@@ -105,4 +114,4 @@ Then redeploy on Vercel. Cron jobs only run on Production deployments.
 
 ## Notes
 
-Vercel Hobby cron jobs are free, but they can run within the selected hour instead of at the exact minute. For this project, that means the 20:00 reminder may run sometime between 20:00 and 20:59 Vietnam time.
+Vercel Hobby cron jobs are free, but they can run within the selected hour instead of at the exact minute. For this project, that means the 08:00 and 18:00 reminders may run within those Vietnam-time hours.

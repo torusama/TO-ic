@@ -102,10 +102,32 @@ a {
 }
 
 .header-streak .streak-val {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.1em;
   color: var(--orange);
   font-size: 16px;
   font-weight: 800;
   line-height: 1;
+}
+
+.streak-roll {
+  display: grid;
+  grid-template-rows: 1em 1em;
+  height: 1em;
+  overflow: hidden;
+}
+
+.streak-roll span {
+  display: grid;
+  place-items: center;
+  height: 1em;
+  transform: translateY(0);
+  transition: transform 0.62s cubic-bezier(0.2, 0.86, 0.2, 1);
+}
+
+.is-streak-rolling .streak-roll span {
+  transform: translateY(-1em);
 }
 
 .nav-links {

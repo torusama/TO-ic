@@ -27,9 +27,14 @@ async function runMailWorker({ mode = "all" } = {}) {
   const normalizedMode = String(mode || "all").toLowerCase();
   const result = {
     todayKey,
+    starterReminders: null,
     reminders: null,
     announcements: null,
   };
+
+  if (["starter", "starter-reminders", "early-reminders"].includes(normalizedMode)) {
+    result.starterReminders = await sendStarterStudyReminders(todayKey);
+  }
 
   if (["all", "reminders", "study-reminders"].includes(normalizedMode)) {
     result.reminders = await sendDailyStudyReminders(todayKey);
@@ -58,12 +63,15 @@ function isAuthorizedRequest(request) {
 }
 
 async function sendDailyStudyReminders(todayKey) {
-  const candidates = await getEmailCandidates((user) => shouldSendStudyReminder(user, todayKey));
+  const candidates = await getEmailCandidates((user) => shouldSendStudyReminder(user, todayKey), {
+    resetBrokenStreaks: true,
+    todayKey,
+  });
   const result = await deliverToCandidates({
     candidates,
     deliveryId: `study-reminder__${todayKey}`,
     type: "study-reminder",
-    copyFactory: (user) => createStudyReminderCopy(user, todayKey),
+    copyFactory: (user) => createStudyReminderCopy(user, todayKey, { kind: "study-reminder" }),
     urlFactory: () => `${getAppBaseUrl()}/pages/hoc-phan.html`,
     notificationFactory: (copy) => ({
       id: `study-reminder__${todayKey}`,
@@ -74,6 +82,39 @@ async function sendDailyStudyReminders(todayKey) {
       userRef.set(
         {
           emailState: {
+            lastStudyReminderDate: todayKey,
+            lastEmailSentAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      ),
+  });
+
+  return result;
+}
+
+async function sendStarterStudyReminders(todayKey) {
+  const candidates = await getEmailCandidates((user) => shouldSendStarterReminder(user, todayKey), {
+    resetBrokenStreaks: true,
+    todayKey,
+  });
+  const result = await deliverToCandidates({
+    candidates,
+    deliveryId: `starter-reminder__${todayKey}`,
+    type: "starter-reminder",
+    copyFactory: (user) => createStudyReminderCopy(user, todayKey, { kind: "starter-reminder" }),
+    urlFactory: () => `${getAppBaseUrl()}/pages/hoc-phan.html`,
+    notificationFactory: (copy) => ({
+      id: `starter-reminder__${todayKey}`,
+      title: copy.subject,
+      body: copy.preview,
+    }),
+    afterSend: (userRef) =>
+      userRef.set(
+        {
+          emailState: {
+            lastStarterReminderDate: todayKey,
             lastStudyReminderDate: todayKey,
             lastEmailSentAt: admin.firestore.FieldValue.serverTimestamp(),
           },
@@ -294,13 +335,51 @@ async function updateAnnouncementSourceLesson(announcement, status, deliveryResu
   }
 }
 
-async function getEmailCandidates(predicate) {
+async function getEmailCandidates(predicate, options = {}) {
   const maxEmails = getNumberEnv("MAX_EMAILS_PER_RUN", 40);
   const snapshot = await getDb().collection("users").limit(maxEmails * 3).get();
-  return snapshot.docs
-    .map((docSnap) => ({ ref: docSnap.ref, id: docSnap.id, data: docSnap.data() || {} }))
-    .filter((user) => Boolean(user.data.email) && predicate(user))
-    .slice(0, maxEmails);
+  const candidates = [];
+
+  for (const docSnap of snapshot.docs) {
+    if (candidates.length >= maxEmails) break;
+
+    const user = { ref: docSnap.ref, id: docSnap.id, data: docSnap.data() || {} };
+    if (options.resetBrokenStreaks) {
+      await resetBrokenStreakIfNeeded(user, options.todayKey);
+    }
+    if (Boolean(user.data.email) && predicate(user)) {
+      candidates.push(user);
+    }
+  }
+
+  return candidates;
+}
+
+async function resetBrokenStreakIfNeeded(user, todayKey) {
+  const stats = user.data.stats || {};
+  const streak = Number(stats.streak || 0);
+  if (streak <= 0 || !shouldResetStreak(stats.lastStreakDate, todayKey)) return;
+
+  const nextStats = {
+    ...stats,
+    streak: 0,
+    streakResetDate: todayKey,
+    streakBrokenAfterDate: stats.lastStreakDate || "",
+  };
+  user.data.stats = nextStats;
+
+  await user.ref.set(
+    {
+      stats: {
+        streak: 0,
+        streakResetDate: todayKey,
+        streakBrokenAfterDate: stats.lastStreakDate || "",
+        lastStreakResetAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
 }
 
 async function deliverToCandidates(options) {
@@ -323,6 +402,8 @@ async function deliverToCandidates(options) {
         to: user.data.email,
         copy,
         ctaUrl,
+        type,
+        user: user.data,
       });
 
       const notification = notificationFactory(copy);
@@ -370,7 +451,17 @@ function shouldSendStudyReminder(user, todayKey) {
   const data = user.data;
   if (data.emailPreferences?.studyReminders === false) return false;
   if (data.emailState?.lastStudyReminderDate === todayKey) return false;
-  if (data.stats?.lastStreakDate === todayKey) return false;
+  if (hasStudiedToday(data.stats, todayKey)) return false;
+  return true;
+}
+
+function shouldSendStarterReminder(user, todayKey) {
+  const data = user.data;
+  if (data.emailPreferences?.studyReminders === false) return false;
+  if (data.emailState?.lastStarterReminderDate === todayKey) return false;
+  if (data.emailState?.lastStudyReminderDate === todayKey) return false;
+  if (hasStudiedToday(data.stats, todayKey)) return false;
+  if (getActiveStreak(data.stats, todayKey) > 0) return false;
   return true;
 }
 
@@ -389,27 +480,41 @@ function isTerminalAnnouncementStatus(status) {
   return ["sending", "sent", "sent-with-errors"].includes(String(status || "").toLowerCase());
 }
 
-async function createStudyReminderCopy(user, todayKey) {
+async function createStudyReminderCopy(user, todayKey, { kind = "study-reminder" } = {}) {
   const data = user.data;
-  const fallback = {
-    subject: "Giữ streak TOEIC hôm nay nha",
-    preview: "Một bài ngắn hôm nay là đủ giữ nhịp học rồi.",
-    body:
-      `Chào ${getFirstName(data.displayName)}, hôm nay (${todayKey}) bạn chưa ghi nhận bài học mới. ` +
-      `Làm một bài TOEIC ngắn để giữ streak ${Number(data.stats?.streak || 0)} ngày và quay lại nhịp học nhé.`,
-    ctaText: "Học ngay",
-  };
+  const streak = getActiveStreak(data.stats, todayKey);
+  const firstName = getFirstName(data.displayName);
+  const isStarter = kind === "starter-reminder";
+  const fallback = isStarter
+    ? {
+        subject: "Mo streak TOEIC hom nay nha",
+        preview: "Mot bai ngan la du bat nhip hoc dau tien roi.",
+        body:
+          `Chao ${firstName}, hom nay minh bat dau that nhe thoi: mo mot bai TOEIC ngan, hoc vai phut, roi de AzoTa ghi ngay dau tien cho ban. ` +
+          "Khong can hoan hao dau, chi can co mat la chuoi streak bat dau chay.",
+        ctaText: "Bat dau hoc",
+      }
+    : {
+        subject: `Giu streak ${streak} ngay hom nay nha`,
+        preview: "18h roi, streak cua ban dang cho mot bai ngan de duoc giu tiep.",
+        body:
+          `Chao ${firstName}, streak ${streak} ngay cua ban van con do. Hom nay chua ghi nhan bai hoc moi, nen lam mot bai TOEIC ngan truoc khi nghi nha. ` +
+          "Vai phut thoi cung du giu nhip, dung de cong may ngay qua roi mat uong lam.",
+        ctaText: "Giu streak",
+      };
 
   return createAiEmailCopy(
     {
-      kind: "study-reminder",
+      kind,
       displayName: data.displayName,
-      firstName: getFirstName(data.displayName),
-      streak: Number(data.stats?.streak || 0),
+      firstName,
+      streak,
       lessons: Number(data.stats?.lessons || 0),
       recentCourse: data.learning?.recentCourse || "",
       recentLesson: data.learning?.recentLesson || "",
       todayKey,
+      sendTime: isStarter ? "early morning Asia/Bangkok" : "18:00 Asia/Bangkok",
+      tone: isStarter ? "gentle first-step nudge" : "earnest streak rescue before midnight, no guilt trip",
     },
     fallback
   );
@@ -518,9 +623,9 @@ async function createGroqEmailCopy(context, apiKey) {
   return parseAiJson(data.choices?.[0]?.message?.content || "");
 }
 
-async function sendMail({ to, copy, ctaUrl }) {
+async function sendMail({ to, copy, ctaUrl, type, user }) {
   const profileUrl = `${getAppBaseUrl()}/pages/ca-nhan.html`;
-  const html = renderEmailHtml({ copy, ctaUrl, profileUrl });
+  const html = renderEmailHtml({ copy, ctaUrl, profileUrl, type, user });
   const text = [
     copy.preview,
     "",
@@ -619,24 +724,52 @@ function sanitizeEmailCopy(value, fallback) {
   };
 }
 
-function renderEmailHtml({ copy, ctaUrl, profileUrl }) {
+function renderEmailHtml({ copy, ctaUrl, profileUrl, type, user = {} }) {
   const paragraphs = cleanText(copy.body)
     .split(/\n{2,}/)
-    .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`)
+    .map((paragraph) => `<p style="margin:0 0 14px;color:#4b4b4b;font-size:16px;font-weight:700;line-height:1.58;">${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`)
     .join("");
+  const streak = Number(user.stats?.streak || 0);
+  const lessons = Number(user.stats?.lessons || 0);
+  const isAnnouncement = type === "announcement";
+  const isStarter = type === "starter-reminder";
+  const accent = isAnnouncement ? "#1cb0f6" : isStarter ? "#58cc02" : "#ff9600";
+  const accentShadow = isAnnouncement ? "#1899d6" : isStarter ? "#61b800" : "#d87b00";
+  const badge = isAnnouncement ? "NEW LESSON" : isStarter ? "START STREAK" : "STREAK RESCUE";
+  const metricLabel = isAnnouncement ? "Update" : "Current streak";
+  const metricValue = isAnnouncement ? "New" : String(streak);
 
   return `<!doctype html>
 <html>
-  <body style="margin:0;background:#f7f7f7;font-family:Arial,sans-serif;color:#4b4b4b;">
+  <body style="margin:0;background:#fbfbfb;font-family:Arial,sans-serif;color:#4b4b4b;">
     <div style="display:none;max-height:0;overflow:hidden;">${escapeHtml(copy.preview)}</div>
-    <main style="max-width:560px;margin:0 auto;padding:28px 16px;">
-      <section style="background:#ffffff;border:1px solid #e5e5e5;border-radius:16px;padding:28px;">
-        <p style="margin:0 0 8px;color:#58cc02;font-weight:800;letter-spacing:.04em;text-transform:uppercase;">AzoTa TOEIC</p>
-        <h1 style="margin:0 0 18px;color:#100f3e;font-size:24px;line-height:1.25;">${escapeHtml(copy.subject)}</h1>
-        <div style="font-size:16px;line-height:1.6;">${paragraphs}</div>
-        <p style="margin:24px 0 0;">
-          <a href="${escapeHtml(ctaUrl)}" style="display:inline-block;background:#58cc02;color:#ffffff;text-decoration:none;font-weight:800;border-radius:12px;padding:12px 18px;">${escapeHtml(copy.ctaText)}</a>
-        </p>
+    <main style="max-width:620px;margin:0 auto;padding:30px 14px;">
+      <section style="overflow:hidden;background:#ffffff;border:2px solid #e5e5e5;border-radius:18px;box-shadow:0 8px 0 #e5e5e5;">
+        <div style="padding:22px 24px;background:linear-gradient(135deg, rgba(88,204,2,0.16), rgba(255,255,255,1) 58%);border-bottom:2px solid #e5e5e5;">
+          <p style="margin:0 0 12px;color:#58cc02;font-size:12px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;">AzoTa TOEIC</p>
+          <span style="display:inline-block;margin:0 0 12px;border-radius:999px;background:${accent};color:#ffffff;padding:6px 12px;font-size:11px;font-weight:900;letter-spacing:.7px;text-transform:uppercase;">${badge}</span>
+          <h1 style="margin:0;color:#100f3e;font-size:28px;line-height:1.18;font-weight:900;">${escapeHtml(copy.subject)}</h1>
+        </div>
+        <div style="padding:24px;">
+          <div style="display:table;width:100%;border-spacing:0 0;margin:0 0 22px;">
+            <div style="display:table-cell;width:50%;padding:0 6px 0 0;">
+              <div style="border:2px solid #e5e5e5;border-radius:14px;padding:14px;background:#ffffff;">
+                <p style="margin:0 0 4px;color:#afafaf;font-size:11px;font-weight:900;letter-spacing:.8px;text-transform:uppercase;">${metricLabel}</p>
+                <strong style="display:block;color:${accent};font-size:30px;font-weight:900;line-height:1;">${escapeHtml(metricValue)}</strong>
+              </div>
+            </div>
+            <div style="display:table-cell;width:50%;padding:0 0 0 6px;">
+              <div style="border:2px solid #e5e5e5;border-radius:14px;padding:14px;background:#ffffff;">
+                <p style="margin:0 0 4px;color:#afafaf;font-size:11px;font-weight:900;letter-spacing:.8px;text-transform:uppercase;">Lessons</p>
+                <strong style="display:block;color:#1cb0f6;font-size:30px;font-weight:900;line-height:1;">${lessons}</strong>
+              </div>
+            </div>
+          </div>
+          ${paragraphs}
+          <p style="margin:24px 0 0;">
+            <a href="${escapeHtml(ctaUrl)}" style="display:inline-block;background:${accent};box-shadow:0 4px 0 ${accentShadow};color:#ffffff;text-decoration:none;font-size:15px;font-weight:900;border-radius:12px;padding:14px 20px;text-transform:uppercase;">${escapeHtml(copy.ctaText)}</a>
+          </p>
+        </div>
       </section>
       <p style="margin:16px 4px 0;color:#777777;font-size:12px;line-height:1.5;">
         You are receiving this because your TOEIC account has email reminders enabled.
@@ -656,6 +789,8 @@ function getEmailCopySystemPrompt() {
   return [
     "You write short Vietnamese emails for AzoTa TOEIC learners.",
     "Style: warm, lively, a little playful, similar to a friendly streak coach.",
+    "If kind is study-reminder and streak is above 0, be earnest about saving today's streak before midnight.",
+    "If kind is starter-reminder, make the first step feel easy and immediate.",
     "Do not guilt-trip, threaten, overpromise scores, mention discounts, or say you are AI.",
     "Keep the body under 110 Vietnamese words.",
     "Return only a JSON object with these keys: subject, preview, body, ctaText.",
@@ -699,6 +834,37 @@ function parseAiJson(value) {
 function getFirstName(displayName) {
   const cleanName = String(displayName || "bạn").trim();
   return cleanName.split(/\s+/)[0] || "bạn";
+}
+
+function hasStudiedToday(stats = {}, todayKey) {
+  return stats?.lastStreakDate === todayKey;
+}
+
+function getActiveStreak(stats = {}, todayKey) {
+  if (!stats || shouldResetStreak(stats.lastStreakDate, todayKey)) return 0;
+  return Number(stats.streak || 0);
+}
+
+function shouldResetStreak(lastStreakDate, todayKey) {
+  if (!lastStreakDate) return false;
+  return lastStreakDate !== todayKey && !isYesterdayKey(lastStreakDate, todayKey);
+}
+
+function isYesterdayKey(dateKey, todayKey) {
+  if (!dateKey || !todayKey) return false;
+
+  const today = parseDateKey(todayKey);
+  const previous = parseDateKey(dateKey);
+  if (!today || !previous) return false;
+
+  const diffDays = Math.round((today.getTime() - previous.getTime()) / 86400000);
+  return diffDays === 1;
+}
+
+function parseDateKey(dateKey) {
+  const match = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
 }
 
 function getDateKeyInTimeZone(date, timeZone) {

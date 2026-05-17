@@ -8,6 +8,7 @@ import {
   markNotificationRead,
 } from "./notification-service.js";
 import {
+  claimStreakAnimation,
   ensureUserProfile,
   getCompletedLessonKey,
   listenActivities,
@@ -19,6 +20,7 @@ import {
   updateEmailPreferences,
 } from "./user-service.js";
 import { loadCourseWithLessons } from "./course-service.js";
+import { rollStreakNumber, setStreakNumber } from "./streak-animation.js";
 
 const firebaseNotice = document.querySelector("#firebaseNotice");
 const signOutBtn = document.querySelector("#signOutBtn");
@@ -40,6 +42,7 @@ let activeCompletedLessons = new Set();
 let activeCoursesById = new Map();
 let unsubscribers = [];
 let courseDataVersion = 0;
+const checkedProfileAnimations = new Set();
 
 setAuthState("signed-out");
 
@@ -206,7 +209,7 @@ function renderProfile() {
   document.querySelector("#userAvatar").src = activeProfile.photoURL || "https://www.gravatar.com/avatar/?d=mp";
   document.querySelector("#userName").textContent = activeProfile.displayName || "TOEIC Learner";
   document.querySelector("#userEmail").textContent = activeProfile.email || "";
-  document.querySelector("#streakMetric").textContent = activeProfile.stats?.streak || 0;
+  renderProfileStreak();
   document.querySelector("#lessonsMetric").textContent = activeProfile.stats?.lessons || 0;
   document.querySelector("#profileBell")?.classList.toggle("has-unread", unreadCount > 0);
 
@@ -233,6 +236,26 @@ function renderProfile() {
   renderLearningMap();
   renderSkillChartPanels();
   renderEmailSettings();
+}
+
+async function renderProfileStreak() {
+  const target = document.querySelector("#streakMetric");
+  const streak = Number(activeProfile.stats?.streak || 0);
+
+  const lastStreakDate = activeProfile.stats?.lastStreakDate || "";
+  const checkKey = `${activeUser?.uid || "guest"}__${lastStreakDate}__${streak}`;
+  if (!activeUser || !lastStreakDate || streak <= 0 || checkedProfileAnimations.has(checkKey)) {
+    setStreakNumber(target, streak);
+    return;
+  }
+
+  checkedProfileAnimations.add(checkKey);
+  const claim = await claimStreakAnimation(activeUser.uid, "profile");
+  if (claim.shouldAnimate) {
+    rollStreakNumber(target, claim.from, claim.to);
+  } else {
+    setStreakNumber(target, streak);
+  }
 }
 
 async function loadProfileCourseData() {

@@ -22,6 +22,10 @@ import {
 const defaultStats = { streak: 0, lessons: 0 };
 const defaultLearning = { recentCourse: "None yet", recentLesson: "None yet" };
 const defaultEmailPreferences = { studyReminders: true, newLessonAlerts: true };
+const animationFields = {
+  header: "streakHeaderAnimatedDate",
+  profile: "streakProfileAnimatedDate",
+};
 
 export function onUserChanged(callback) {
   if (!auth) {
@@ -82,6 +86,43 @@ export async function ensureUserProfile(user) {
   );
 
   return profile;
+}
+
+export async function claimStreakAnimation(uid, target = "header") {
+  if (!db || !uid) return { shouldAnimate: false, from: 0, to: 0 };
+
+  const field = animationFields[target] || animationFields.header;
+  const todayStr = getTodayKey();
+  const userRef = doc(db, "users", uid);
+
+  return runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(userRef);
+    const data = snapshot.exists() ? snapshot.data() : {};
+    const stats = data.stats || {};
+    const streak = Number(stats.streak || 0);
+    const lastStreakDate = stats.lastStreakDate || "";
+
+    if (streak <= 0 || lastStreakDate !== todayStr || stats[field] === todayStr) {
+      return { shouldAnimate: false, from: streak, to: streak };
+    }
+
+    transaction.set(
+      userRef,
+      {
+        stats: {
+          [field]: todayStr,
+        },
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    return {
+      shouldAnimate: true,
+      from: Math.max(0, streak - 1),
+      to: streak,
+    };
+  });
 }
 
 export function listenUserProfile(uid, callback, onError = console.warn) {
@@ -156,8 +197,10 @@ export async function completeLesson(user, lesson) {
 
     const userSnap = await transaction.get(userRef);
     const userData = userSnap.exists() ? userSnap.data() : {};
-    const lastStreakDate = userData.stats?.lastStreakDate || "";
+    const currentStats = normalizeStats(userData.stats || {});
+    const lastStreakDate = currentStats.lastStreakDate || "";
     const shouldBumpStreak = lastStreakDate !== todayStr;
+    const nextStreak = getNextStreakValue(currentStats, todayStr);
 
     transaction.set(completedRef, {
       courseId: lesson.courseId,
@@ -171,8 +214,9 @@ export async function completeLesson(user, lesson) {
       lessons: increment(1),
     };
     if (shouldBumpStreak) {
-      statsUpdate.streak = increment(1);
+      statsUpdate.streak = nextStreak;
       statsUpdate.lastStreakDate = todayStr;
+      statsUpdate.lastStreakUpdatedAt = serverTimestamp();
     }
 
     transaction.set(
@@ -339,17 +383,56 @@ export async function clearTimerProgress(uid, lessonKey) {
 }
 
 export function normalizeProfile(user, stored = {}) {
+  const stats = normalizeStats(stored.stats || {});
   return {
     displayName: stored.displayName || getGoogleName(user),
     email: stored.email || user?.email || "",
     photoURL: stored.photoURL || getGooglePhoto(user),
-    stats: {
-      streak: Number(stored.stats?.streak || defaultStats.streak),
-      lessons: Number(stored.stats?.lessons || defaultStats.lessons),
-    },
+    stats,
     learning: { ...defaultLearning, ...(stored.learning || {}) },
     emailPreferences: normalizeEmailPreferences(stored.emailPreferences),
   };
+}
+
+function normalizeStats(stats = {}, date = new Date()) {
+  const todayStr = getTodayKey(date);
+  const lastStreakDate = stats.lastStreakDate || "";
+  const shouldReset = shouldResetStreak(lastStreakDate, todayStr);
+
+  return {
+    ...stats,
+    streak: shouldReset ? 0 : Number(stats.streak || defaultStats.streak),
+    lessons: Number(stats.lessons || defaultStats.lessons),
+    lastStreakDate,
+  };
+}
+
+function getNextStreakValue(stats, todayStr) {
+  if (stats.lastStreakDate === todayStr) return Number(stats.streak || 0);
+  if (isYesterdayKey(stats.lastStreakDate, todayStr)) return Number(stats.streak || 0) + 1;
+  return 1;
+}
+
+function shouldResetStreak(lastStreakDate, todayStr) {
+  if (!lastStreakDate) return false;
+  return lastStreakDate !== todayStr && !isYesterdayKey(lastStreakDate, todayStr);
+}
+
+function isYesterdayKey(dateKey, todayStr) {
+  if (!dateKey || !todayStr) return false;
+
+  const today = parseDateKey(todayStr);
+  const previous = parseDateKey(dateKey);
+  if (!today || !previous) return false;
+
+  const diffDays = Math.round((today.getTime() - previous.getTime()) / 86400000);
+  return diffDays === 1;
+}
+
+function parseDateKey(dateKey) {
+  const match = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
 }
 
 function normalizeEmailPreferences(value = {}) {

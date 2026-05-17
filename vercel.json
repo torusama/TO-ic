@@ -7,12 +7,19 @@
   "functions": {
     "api/mail-worker.js": {
       "maxDuration": 60
+    },
+    "api/starter-mail-worker.js": {
+      "maxDuration": 60
     }
   },
   "crons": [
     {
+      "path": "/api/starter-mail-worker",
+      "schedule": "0 1 * * *"
+    },
+    {
       "path": "/api/mail-worker",
-      "schedule": "0 13 * * *"
+      "schedule": "0 11 * * *"
     }
   ]
 }
