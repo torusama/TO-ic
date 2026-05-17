@@ -4,6 +4,16 @@ import { loadCourseSummaries } from "./course-service.js";
   const courses = await loadCourseSummaries();
   const panels = document.querySelector("#course-panels");
 
+  if (!courses.length) {
+    panels.innerHTML = `
+      <article class="empty-page">
+        <strong>Course data is not available yet.</strong>
+        <p>Please sign in again or try refreshing the page.</p>
+      </article>
+    `;
+    return;
+  }
+
   panels.innerHTML = courses
     .map(
       (course) => `

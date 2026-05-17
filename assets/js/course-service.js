@@ -1,43 +1,48 @@
-import { db } from "./firebase-app.js";
+import { auth, db } from "./firebase-app.js";
 import {
   collection,
   doc,
   getDoc,
   getDocs,
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
-
-import "./data.js";
-import "./nghe-doc-data.js";
+import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 
 export async function loadCourseSummaries() {
-  const fallbackCourses = getStaticCourses();
-  if (!db) return fallbackCourses;
+  if (!db) return [];
 
   try {
+    const user = await waitForSignedInUser();
+    if (!user) return [];
+
     const snapshot = await getDocs(collection(db, "courses"));
     const courses = snapshot.docs
       .map((docSnap) => normalizeCourseSummary(docSnap.id, docSnap.data()))
       .filter((course) => course.published !== false)
       .sort(sortByOrderThenTitle);
 
-    return courses.length ? courses : fallbackCourses;
+    return courses;
   } catch (error) {
-    console.warn("Could not load Firestore course summaries; using bundled data:", error);
-    return fallbackCourses;
+    console.warn("Could not load Firestore course summaries:", error);
+    return [];
   }
 }
 
 export async function loadCourseWithLessons(courseId) {
-  const fallbackCourses = getStaticCourses();
-  const fallbackCourse = fallbackCourses.find((course) => course.id === courseId) || fallbackCourses[0] || null;
-  if (!db) return fallbackCourse;
+  if (!db) return null;
 
   try {
-    const selectedId = courseId || fallbackCourse?.id;
-    if (!selectedId) return fallbackCourse;
+    const user = await waitForSignedInUser();
+    if (!user) return null;
+
+    let selectedId = courseId;
+    if (!selectedId) {
+      const courses = await loadCourseSummaries();
+      selectedId = courses[0]?.id;
+    }
+    if (!selectedId) return null;
 
     const courseSnap = await getDoc(doc(db, "courses", selectedId));
-    if (!courseSnap.exists()) return fallbackCourse;
+    if (!courseSnap.exists()) return null;
 
     const lessonsSnap = await getDocs(collection(db, "courses", selectedId, "lessons"));
     const lessonItems = lessonsSnap.docs
@@ -47,13 +52,9 @@ export async function loadCourseWithLessons(courseId) {
 
     return buildCourseWithLessons(normalizeCourseSummary(courseSnap.id, courseSnap.data()), lessonItems);
   } catch (error) {
-    console.warn("Could not load Firestore course detail; using bundled data:", error);
-    return fallbackCourse;
+    console.warn("Could not load Firestore course detail:", error);
+    return null;
   }
-}
-
-export function getStaticCourses() {
-  return window.TOIC_DATA?.courses || [];
 }
 
 function buildCourseWithLessons(course, lessonItems) {
@@ -168,4 +169,25 @@ function sortByGlobalThenPartThenOrder(a, b) {
     Number(a.order || 0) - Number(b.order || 0) ||
     String(a.title || "").localeCompare(String(b.title || ""))
   );
+}
+
+function waitForSignedInUser(timeoutMs = 5000) {
+  if (!auth) return Promise.resolve(null);
+  if (auth.currentUser) return Promise.resolve(auth.currentUser);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let unsubscribe = () => {};
+    const timeoutId = window.setTimeout(() => finish(null), timeoutMs);
+
+    function finish(user) {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      unsubscribe();
+      resolve(user || null);
+    }
+
+    unsubscribe = onAuthStateChanged(auth, finish, () => finish(null));
+  });
 }

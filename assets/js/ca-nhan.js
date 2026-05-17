@@ -18,9 +18,7 @@ import {
   signOutUser,
   updateEmailPreferences,
 } from "./user-service.js";
-
-import "./data.js";
-import "./nghe-doc-data.js";
+import { loadCourseWithLessons } from "./course-service.js";
 
 const firebaseNotice = document.querySelector("#firebaseNotice");
 const signOutBtn = document.querySelector("#signOutBtn");
@@ -39,7 +37,9 @@ let activeProfile = normalizeProfile(null, {});
 let activeNotifications = [];
 let activeActivities = [];
 let activeCompletedLessons = new Set();
+let activeCoursesById = new Map();
 let unsubscribers = [];
+let courseDataVersion = 0;
 
 setAuthState("signed-out");
 
@@ -48,10 +48,12 @@ if (!hasFirebaseConfig) {
 } else {
   onUserChanged(async (user) => {
     cleanupListeners();
+    const loadVersion = ++courseDataVersion;
     activeUser = user;
     activeNotifications = [];
     activeActivities = [];
     activeCompletedLessons = new Set();
+    activeCoursesById = new Map();
 
     if (!user) {
       activeProfile = normalizeProfile(null, {});
@@ -69,6 +71,9 @@ if (!hasFirebaseConfig) {
       activeProfile = await ensureUserProfile(user);
       await ensureDefaultNotifications(user);
       renderProfile();
+      loadProfileCourseData().then(() => {
+        if (loadVersion === courseDataVersion) renderProfile();
+      });
 
       unsubscribers = [
         listenUserProfile(
@@ -228,6 +233,15 @@ function renderProfile() {
   renderLearningMap();
   renderSkillChartPanels();
   renderEmailSettings();
+}
+
+async function loadProfileCourseData() {
+  const courses = await Promise.all([
+    loadCourseWithLessons("nghe-doc"),
+    loadCourseWithLessons("noi-viet"),
+  ]);
+
+  activeCoursesById = new Map(courses.filter(Boolean).map((course) => [course.id, course]));
 }
 
 async function saveEmailSettings() {
@@ -650,19 +664,11 @@ function getTrackedPracticeItems() {
 }
 
 function getExplicitPracticeItems() {
-  const practiceSources = [window.TOIC_DATA?.practiceTests, window.TOIC_DATA?.practiceSets].filter(Array.isArray);
-  return practiceSources
-    .flatMap((source) => source)
-    .flatMap((item) => item.items || item.lessons || item.tests || item.exercises || [item])
-    .filter((item) => item?.id)
-    .map((item) => ({
-      ...item,
-      courseId: item.courseId || "practice",
-    }));
+  return [];
 }
 
 function getCourse(courseId) {
-  return window.TOIC_DATA?.courses?.find((course) => course.id === courseId) || null;
+  return activeCoursesById.get(courseId) || null;
 }
 
 function getPartNumber(partId) {
