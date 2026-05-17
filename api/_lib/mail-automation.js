@@ -487,19 +487,19 @@ async function createStudyReminderCopy(user, todayKey, { kind = "study-reminder"
   const isStarter = kind === "starter-reminder";
   const fallback = isStarter
     ? {
-        subject: "Mo streak TOEIC hom nay nha",
-        preview: "Mot bai ngan la du bat nhip hoc dau tien roi.",
+        subject: "Mo streak di, de no moc bui a?",
+        preview: "Mot bai ngan thoi. Streak so 0 nhin hoi buon cuoi roi do.",
         body:
-          `Chao ${firstName}, hom nay minh bat dau that nhe thoi: mo mot bai TOEIC ngan, hoc vai phut, roi de AzoTa ghi ngay dau tien cho ban. ` +
-          "Khong can hoan hao dau, chi can co mat la chuoi streak bat dau chay.",
+          `Chao ${firstName}, streak hien tai dang la 0. Noi vay khong phai che, nhung ma... cung hoi che. ` +
+          "Mo mot bai TOEIC ngan di, hoc vai phut la du bat ngay dau tien. AzoTa dang cam but cho ban roi.",
         ctaText: "Bat dau hoc",
       }
     : {
-        subject: `Giu streak ${streak} ngay hom nay nha`,
-        preview: "18h roi, streak cua ban dang cho mot bai ngan de duoc giu tiep.",
+        subject: `Streak ${streak} ngay dang nhin ban ne`,
+        preview: "18h roi. Dung de mot bai TOEIC 5 phut ha guc chuoi nay nha.",
         body:
-          `Chao ${firstName}, streak ${streak} ngay cua ban van con do. Hom nay chua ghi nhan bai hoc moi, nen lam mot bai TOEIC ngan truoc khi nghi nha. ` +
-          "Vai phut thoi cung du giu nhip, dung de cong may ngay qua roi mat uong lam.",
+          `Chao ${firstName}, streak ${streak} ngay dang dung ngay cua so va nhin ban hoi that vong. ` +
+          "Lam mot bai TOEIC ngan truoc khi nghi nha. Vai phut thoi, dung de cong may ngay qua bi mot ngay luoi danh bai.",
         ctaText: "Giu streak",
       };
 
@@ -790,12 +790,15 @@ function getEmailCopySystemPrompt() {
     "You write short Vietnamese emails for AzoTa TOEIC learners.",
     "Brand voice: Duolingo-inspired but original: playful, meme-aware, a little dramatic, warm, and fast to understand.",
     "Write like a tiny TOEIC coach with a clipboard is poking the learner, not like a corporate newsletter.",
-    "Use natural Vietnamese with light Gen Z flavor only when it fits. One witty jab is welcome; keep it affectionate.",
+    "Toxic level: playful-toxic. Use sassy teasing, mock-drama, tiny roasts, and passive-aggressive comedy like a close friend.",
+    "Roast the procrastination, not the person. The learner should laugh, feel called out, then want to click.",
+    "Use natural Vietnamese with light Gen Z flavor only when it fits. One or two witty jabs are welcome; keep it affectionate.",
     "Personalize from context: streak, lessons, recentCourse, recentLesson, courseTitle, lessonTitle, and sendTime.",
     "If kind is study-reminder and streak is above 0, create playful urgency about saving the streak before midnight.",
     "If kind is starter-reminder, make the first step feel tiny, easy, and oddly satisfying.",
     "If kind is new-lesson, make the lesson feel fresh and worth opening now.",
-    "Avoid copying Duolingo lines. Do not mention Duo, owls, threats, stalking, guilt, shame, grades guaranteed, discounts, or that you are AI.",
+    "Avoid copying Duolingo lines. Do not mention Duo, owls, real threats, stalking, guilt, shame, grades guaranteed, discounts, or that you are AI.",
+    "Never use slurs, protected-class insults, body shaming, mental-health pressure, family insults, profanity, or anything cruel.",
     "Subject: max 58 chars, punchy, curiosity + action. Preview: max 95 chars.",
     "Body: 45-85 Vietnamese words, 1-2 short paragraphs, one clear CTA.",
     "Return only a JSON object with these keys: subject, preview, body, ctaText.",
