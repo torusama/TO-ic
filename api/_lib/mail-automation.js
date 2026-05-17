@@ -88,10 +88,20 @@ async function sendDailyStudyReminders(todayKey) {
 
 async function sendReadyAnnouncements() {
   const db = getDb();
-  const snapshot = await db.collection("announcements").limit(getNumberEnv("MAX_ANNOUNCEMENTS_PER_RUN", 10)).get();
-  const announcements = snapshot.docs
+  const queuedLessons = await queueReadyLessonAnnouncements();
+  const maxAnnouncements = getNumberEnv("MAX_ANNOUNCEMENTS_PER_RUN", 10);
+  const [readySnapshot, legacySnapshot] = await Promise.all([
+    db.collection("announcements").where("status", "in", ["ready", "queued"]).limit(maxAnnouncements).get(),
+    db.collection("announcements").limit(maxAnnouncements).get(),
+  ]);
+  const announcementDocs = new Map();
+  [...readySnapshot.docs, ...legacySnapshot.docs].forEach((docSnap) => {
+    announcementDocs.set(docSnap.id, docSnap);
+  });
+  const announcements = [...announcementDocs.values()]
     .map((docSnap) => ({ ref: docSnap.ref, id: docSnap.id, data: docSnap.data() || {} }))
-    .filter((item) => shouldSendAnnouncementDoc(item.data));
+    .filter((item) => shouldSendAnnouncementDoc(item.data))
+    .slice(0, maxAnnouncements);
   const results = [];
 
   for (const item of announcements) {
@@ -131,9 +141,11 @@ async function sendReadyAnnouncements() {
         ),
     });
 
+    const announcementStatus = deliveryResult.failed > 0 ? "sent-with-errors" : "sent";
+
     await item.ref.set(
       {
-        status: deliveryResult.failed > 0 ? "sent-with-errors" : "sent",
+        status: announcementStatus,
         sentCount: deliveryResult.sent,
         skippedCount: deliveryResult.skipped,
         failedCount: deliveryResult.failed,
@@ -143,13 +155,143 @@ async function sendReadyAnnouncements() {
       { merge: true }
     );
 
+    await updateAnnouncementSourceLesson(announcement, announcementStatus, deliveryResult, item.id);
     results.push({ id: item.id, ...deliveryResult });
   }
 
   return {
+    queuedLessons,
     processed: results.length,
     results,
   };
+}
+
+async function queueReadyLessonAnnouncements() {
+  const db = getDb();
+  const maxLessons = getNumberEnv("MAX_LESSON_ANNOUNCEMENTS_PER_RUN", 10);
+  const lessonEntries = await getLessonsMarkedForAnnouncement(db, maxLessons);
+  const result = { scanned: lessonEntries.length, queued: 0, skipped: 0, failed: 0 };
+
+  for (const entry of lessonEntries) {
+    const { lessonSnap, courseId, course } = entry;
+    try {
+      const lesson = lessonSnap.data() || {};
+      const courseRef = lessonSnap.ref.parent.parent;
+      if (!courseRef || lesson.published === false) {
+        result.skipped += 1;
+        continue;
+      }
+
+      const lessonId = lessonSnap.id;
+      const announcementId = toDocId(`lesson-${courseId}-${lessonId}`);
+      const announcementRef = db.collection("announcements").doc(announcementId);
+      const announcementSnap = await announcementRef.get();
+      const announcementData = announcementSnap.exists ? announcementSnap.data() || {} : {};
+
+      if (isTerminalAnnouncementStatus(announcementData.status)) {
+        await lessonSnap.ref.set(
+          {
+            notifyNewLesson: false,
+            announcementId,
+            announcementStatus: announcementData.status,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+        result.skipped += 1;
+        continue;
+      }
+
+      const now = admin.firestore.FieldValue.serverTimestamp();
+      await announcementRef.set(
+        {
+          ...(announcementSnap.exists ? {} : { createdAt: now }),
+          type: "new-lesson",
+          status: "ready",
+          sendEmail: true,
+          courseId,
+          lessonId,
+          courseTitle: course.title || courseId,
+          lessonTitle: lesson.title || lessonId,
+          lessonUrl: buildLessonUrl(courseId, lessonId),
+          summary: lesson.description || lesson.status || lesson.type || "",
+          source: "course-lesson",
+          sourcePath: lessonSnap.ref.path,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
+      await lessonSnap.ref.set(
+        {
+          notifyNewLesson: false,
+          announcementId,
+          announcementStatus: "queued",
+          announcementQueuedAt: now,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
+      result.queued += 1;
+    } catch (error) {
+      result.failed += 1;
+      console.error("Could not queue lesson announcement:", {
+        path: lessonSnap.ref.path,
+        message: error.message,
+      });
+    }
+  }
+
+  return result;
+}
+
+async function getLessonsMarkedForAnnouncement(db, maxLessons) {
+  const courseSnapshot = await db.collection("courses").limit(100).get();
+  const lessons = [];
+
+  for (const courseSnap of courseSnapshot.docs) {
+    if (lessons.length >= maxLessons) break;
+
+    const lessonSnapshot = await courseSnap.ref
+      .collection("lessons")
+      .where("notifyNewLesson", "==", true)
+      .limit(maxLessons - lessons.length)
+      .get();
+
+    lessonSnapshot.docs.forEach((lessonSnap) => {
+      lessons.push({
+        lessonSnap,
+        courseId: courseSnap.id,
+        course: courseSnap.data() || {},
+      });
+    });
+  }
+
+  return lessons;
+}
+
+async function updateAnnouncementSourceLesson(announcement, status, deliveryResult, announcementId) {
+  if (!announcement.sourcePath) return;
+
+  try {
+    await getDb().doc(announcement.sourcePath).set(
+      {
+        announcementId,
+        announcementStatus: status,
+        announcementSentCount: deliveryResult.sent,
+        announcementFailedCount: deliveryResult.failed,
+        announcementCompletedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch (error) {
+    console.warn("Could not update source lesson announcement state:", {
+      sourcePath: announcement.sourcePath,
+      message: error.message,
+    });
+  }
 }
 
 async function getEmailCandidates(predicate) {
@@ -239,10 +381,12 @@ function shouldSendAnnouncement(user) {
 function shouldSendAnnouncementDoc(data = {}) {
   if (data.sendEmail === false) return false;
   if (data.status === "draft") return false;
-  if (data.status === "sending") return false;
-  if (data.status === "sent") return false;
-  if (data.status === "sent-with-errors") return false;
+  if (isTerminalAnnouncementStatus(data.status)) return false;
   return true;
+}
+
+function isTerminalAnnouncementStatus(status) {
+  return ["sending", "sent", "sent-with-errors"].includes(String(status || "").toLowerCase());
 }
 
 async function createStudyReminderCopy(user, todayKey) {
@@ -454,7 +598,16 @@ function normalizeAnnouncement(data = {}, id) {
     lessonTitle,
     lessonUrl,
     summary: String(data.summary || data.description || "").trim(),
+    sourcePath: String(data.sourcePath || "").trim(),
   };
+}
+
+function buildLessonUrl(courseId, lessonId) {
+  const query = new URLSearchParams({
+    course: courseId,
+    lesson: lessonId,
+  });
+  return toAbsoluteUrl(`/pages/bai-hoc.html?${query.toString()}`);
 }
 
 function sanitizeEmailCopy(value, fallback) {
@@ -588,6 +741,14 @@ function cleanText(value) {
 function limitText(value, maxLength) {
   if (!value) return "";
   return value.length > maxLength ? `${value.slice(0, maxLength - 1).trim()}...` : value;
+}
+
+function toDocId(value) {
+  return String(value || "item")
+    .trim()
+    .replace(/[/.#[\]]/g, "-")
+    .replace(/\s+/g, "-")
+    .toLowerCase();
 }
 
 function escapeHtml(value) {

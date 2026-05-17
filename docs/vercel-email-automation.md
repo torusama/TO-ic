@@ -26,6 +26,7 @@ FIREBASE_SERVICE_ACCOUNT_B64=base64-encoded-service-account-json
 MAX_EMAILS_PER_RUN=40
 EMAIL_SEND_DELAY_MS=900
 MAX_ANNOUNCEMENTS_PER_RUN=10
+MAX_LESSON_ANNOUNCEMENTS_PER_RUN=10
 ```
 
 Use the Vercel dashboard for secrets. Do not prefix these with `VITE_`, and do not put real values in Git.
@@ -59,6 +60,22 @@ The route sends streak reminders to users who:
 - have not already received today's reminder.
 
 ## New Lesson Announcement
+
+Automatic path:
+
+1. Add or edit a lesson document under `courses/{courseId}/lessons/{lessonId}`.
+2. Set these fields on that lesson:
+
+```json
+{
+  "published": true,
+  "notifyNewLesson": true
+}
+```
+
+The next cron run will create an `announcements` document, send email + in-app notifications, then mark the lesson with `announcementStatus`.
+
+Manual path:
 
 Create a Firestore document in `announcements`:
 
