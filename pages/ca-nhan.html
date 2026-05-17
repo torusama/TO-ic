@@ -36,7 +36,10 @@
                 <p id="userEmail"></p>
               </div>
             </div>
-            <button id="signOutBtn" class="btn btn--primary" type="button">Sign out</button>
+            <div class="profile-actions">
+              <button id="editProfileBtn" class="profile-action-btn profile-action-btn--blue" type="button">Edit</button>
+              <button id="signOutBtn" class="btn btn--primary" type="button">Sign out</button>
+            </div>
           </article>
 
           <article class="streak-card metric-card">
@@ -56,6 +59,7 @@
           </article>
           <article class="profile-card lessons-card metric-card">
             <p class="eyebrow">Lessons studied</p>
+            <button id="findFriendsBtn" class="friend-open-btn" type="button">Find friends</button>
             <strong id="lessonsMetric">0</strong>
             <span>lessons completed</span>
           </article>
@@ -147,6 +151,68 @@
             <div id="skillComboChart" class="skill-chart-canvas" aria-label="Skill progress chart"></div>
           </article>
         </section>
+      </section>
+
+      <section id="friendModal" class="profile-modal" hidden>
+        <div class="profile-modal__backdrop" data-close-friend-modal></div>
+        <article class="profile-modal__panel profile-modal__panel--wide" role="dialog" aria-modal="true" aria-labelledby="friendModalTitle">
+          <div class="profile-modal__head">
+            <div>
+              <p class="eyebrow">Social</p>
+              <h2 id="friendModalTitle">Find friends</h2>
+            </div>
+            <button class="profile-modal__close" type="button" data-close-friend-modal aria-label="Close">&times;</button>
+          </div>
+          <label class="friend-search">
+            <span>Search by display name</span>
+            <input id="friendSearchInput" type="search" placeholder="Type a friend's name..." autocomplete="off" />
+          </label>
+          <div class="friend-modal-grid">
+            <section>
+              <div class="friend-section-head">
+                <h3>Results</h3>
+                <small id="friendSearchStatus">Suggested learners</small>
+              </div>
+              <div id="friendResults" class="friend-list"></div>
+            </section>
+            <section>
+              <div class="friend-section-head">
+                <h3>Profile</h3>
+                <small>Public view</small>
+              </div>
+              <div id="friendProfilePreview" class="friend-profile-preview"></div>
+            </section>
+          </div>
+        </article>
+      </section>
+
+      <section id="editProfileModal" class="profile-modal" hidden>
+        <div class="profile-modal__backdrop" data-close-edit-modal></div>
+        <form id="editProfileForm" class="profile-modal__panel" role="dialog" aria-modal="true" aria-labelledby="editProfileTitle">
+          <div class="profile-modal__head">
+            <div>
+              <p class="eyebrow">Profile</p>
+              <h2 id="editProfileTitle">Edit profile</h2>
+            </div>
+            <button class="profile-modal__close" type="button" data-close-edit-modal aria-label="Close">&times;</button>
+          </div>
+          <div class="edit-avatar-row">
+            <img id="editAvatarPreview" src="" alt="" />
+            <label class="avatar-upload-btn">
+              Upload avatar
+              <input id="avatarUploadInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+            </label>
+          </div>
+          <label class="profile-field">
+            <span>Display name</span>
+            <input id="displayNameInput" type="text" maxlength="48" placeholder="Your display name" />
+          </label>
+          <p id="editProfileStatus" class="profile-form-status"></p>
+          <div class="profile-modal__actions">
+            <button class="profile-action-btn" type="button" data-close-edit-modal>Cancel</button>
+            <button class="btn btn--primary" type="submit">Save</button>
+          </div>
+        </form>
       </section>
     </main>
   </body>

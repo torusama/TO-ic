@@ -2,8 +2,16 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
     function isAllowedCourseEmail() {
-      return request.auth != null
+      return isSignedIn()
         && request.auth.token.email in [
           "2454112132tuyen@ou.edu.vn",
           "doyouknow.nis@gmail.com",
@@ -14,32 +22,54 @@ service cloud.firestore {
     }
 
     match /users/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read, write: if isOwner(uid);
 
       match /notifications/{docId} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
+        allow read, write: if isOwner(uid);
       }
 
       match /activities/{docId} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
+        allow read, write: if isOwner(uid);
       }
 
       match /history/{docId} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
+        allow read, write: if isOwner(uid);
       }
 
       match /completedLessons/{docId} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
+        allow read, write: if isOwner(uid);
       }
 
       match /timerProgress/{docId} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
+        allow read, write: if isOwner(uid);
       }
 
       match /emailDeliveries/{docId} {
-        allow read: if request.auth != null && request.auth.uid == uid;
+        allow read: if isOwner(uid);
         allow write: if false;
       }
+
+      match /following/{targetUid} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.targetUid == targetUid;
+        allow delete: if isOwner(uid);
+      }
+
+      match /followers/{followerUid} {
+        allow read: if isSignedIn() && (request.auth.uid == uid || request.auth.uid == followerUid);
+        allow create, update: if isSignedIn()
+          && request.auth.uid == followerUid
+          && request.resource.data.followerUid == followerUid;
+        allow delete: if isSignedIn() && request.auth.uid == followerUid;
+      }
+    }
+
+    match /publicProfiles/{uid} {
+      allow read: if isSignedIn();
+      allow create, update: if isOwner(uid)
+        && request.resource.data.uid == uid;
+      allow delete: if false;
     }
 
     match /courses/{courseId} {
@@ -53,7 +83,7 @@ service cloud.firestore {
     }
 
     match /announcements/{announcementId} {
-      allow read: if request.auth != null;
+      allow read: if isSignedIn();
       allow write: if false;
     }
   }

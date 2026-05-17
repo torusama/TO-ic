@@ -7,16 +7,19 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
+  getDocs,
   increment,
   limit,
   onSnapshot,
-  orderBy,
   query,
   runTransaction,
   serverTimestamp,
   setDoc,
+  writeBatch,
+  orderBy,
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 const defaultStats = { streak: 0, lessons: 0 };
@@ -85,7 +88,108 @@ export async function ensureUserProfile(user) {
     { merge: true }
   );
 
+  await setDoc(doc(db, "publicProfiles", user.uid), getPublicProfilePayload(user.uid, profile), { merge: true });
+
   return profile;
+}
+
+export async function updateUserProfile(user, updates = {}) {
+  if (!db || !user) return false;
+
+  const displayName = cleanDisplayName(updates.displayName) || "TOEIC Learner";
+  const photoURL = cleanPhotoUrl(updates.photoURL);
+  const ref = doc(db, "users", user.uid);
+  const snapshot = await getDoc(ref);
+  const stored = snapshot.exists() ? snapshot.data() : {};
+  const profile = normalizeProfile(user, {
+    ...stored,
+    displayName,
+    photoURL: photoURL || stored.photoURL || user.photoURL || "",
+  });
+
+  await Promise.all([
+    setDoc(
+      ref,
+      {
+        displayName: profile.displayName,
+        photoURL: profile.photoURL,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    ),
+    setDoc(doc(db, "publicProfiles", user.uid), getPublicProfilePayload(user.uid, profile), { merge: true }),
+  ]);
+
+  return true;
+}
+
+export function listenFollowing(uid, callback, onError = console.warn) {
+  if (!db || !uid) return () => {};
+  return onSnapshot(
+    collection(db, "users", uid, "following"),
+    (snapshot) => callback(new Set(snapshot.docs.map((docSnap) => docSnap.id))),
+    onError
+  );
+}
+
+export async function listSuggestedProfiles(uid) {
+  if (!db || !uid) return [];
+  const snapshot = await getDocs(query(collection(db, "publicProfiles"), orderBy("updatedAt", "desc"), limit(30)));
+  return snapshot.docs.map((docSnap) => normalizePublicProfile(docSnap.id, docSnap.data())).filter((profile) => profile.uid !== uid);
+}
+
+export async function searchPublicProfiles(term, uid) {
+  if (!db || !uid) return [];
+  const needle = normalizeSearchName(term);
+  const snapshot = await getDocs(query(collection(db, "publicProfiles"), orderBy("updatedAt", "desc"), limit(60)));
+  return snapshot.docs
+    .map((docSnap) => normalizePublicProfile(docSnap.id, docSnap.data()))
+    .filter((profile) => profile.uid !== uid)
+    .filter((profile) => !needle || profile.searchName.includes(needle) || profile.displayName.toLowerCase().includes(String(term || "").toLowerCase()))
+    .slice(0, 20);
+}
+
+export async function followUser(user, targetProfile, followerProfile = {}) {
+  if (!db || !user || !targetProfile?.uid || user.uid === targetProfile.uid) return false;
+
+  const now = serverTimestamp();
+  const followerDisplayName = cleanDisplayName(followerProfile.displayName) || cleanDisplayName(user.displayName) || "TOEIC Learner";
+  const followerPhotoURL = cleanPhotoUrl(followerProfile.photoURL) || cleanPhotoUrl(user.photoURL);
+  const batch = writeBatch(db);
+  batch.set(
+    doc(db, "users", user.uid, "following", targetProfile.uid),
+    {
+      targetUid: targetProfile.uid,
+      displayName: targetProfile.displayName || "TOEIC Learner",
+      photoURL: targetProfile.photoURL || "",
+      followedAt: now,
+      updatedAt: now,
+    },
+    { merge: true }
+  );
+  batch.set(
+    doc(db, "users", targetProfile.uid, "followers", user.uid),
+    {
+      followerUid: user.uid,
+      displayName: followerDisplayName,
+      photoURL: followerPhotoURL,
+      followedAt: now,
+      updatedAt: now,
+    },
+    { merge: true }
+  );
+  await batch.commit();
+  return true;
+}
+
+export async function unfollowUser(uid, targetUid) {
+  if (!db || !uid || !targetUid || uid === targetUid) return false;
+
+  await Promise.all([
+    deleteDoc(doc(db, "users", uid, "following", targetUid)),
+    deleteDoc(doc(db, "users", targetUid, "followers", uid)),
+  ]);
+  return true;
 }
 
 export async function claimStreakAnimation(uid, target = "header") {
@@ -232,6 +336,24 @@ export async function completeLesson(user, lesson) {
       { merge: true }
     );
 
+    transaction.set(
+      doc(db, "publicProfiles", user.uid),
+      {
+        uid: user.uid,
+        stats: {
+          streak: shouldBumpStreak ? nextStreak : Number(currentStats.streak || 0),
+          lessons: increment(1),
+          lastStreakDate: shouldBumpStreak ? todayStr : currentStats.lastStreakDate || "",
+        },
+        learning: {
+          recentCourse: lesson.courseTitle || lesson.courseId,
+          recentLesson: lesson.lessonTitle || lesson.lessonId,
+        },
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
     return true;
   });
 
@@ -321,6 +443,38 @@ function getActivityKey(type, courseId, itemId, dateKey) {
 function normalizeActivityBackup(value) {
   if (!value || typeof value !== "object") return [];
   return Object.entries(value).map(([id, item]) => ({ id, ...item }));
+}
+
+function getPublicProfilePayload(uid, profile) {
+  return {
+    uid,
+    displayName: cleanDisplayName(profile.displayName) || "TOEIC Learner",
+    searchName: normalizeSearchName(profile.displayName),
+    email: profile.email || "",
+    photoURL: cleanPhotoUrl(profile.photoURL),
+    stats: {
+      streak: Number(profile.stats?.streak || 0),
+      lessons: Number(profile.stats?.lessons || 0),
+      lastStreakDate: profile.stats?.lastStreakDate || "",
+    },
+    learning: {
+      recentCourse: profile.learning?.recentCourse || defaultLearning.recentCourse,
+      recentLesson: profile.learning?.recentLesson || defaultLearning.recentLesson,
+    },
+    updatedAt: serverTimestamp(),
+  };
+}
+
+function normalizePublicProfile(id, data = {}) {
+  return {
+    uid: data.uid || id,
+    displayName: cleanDisplayName(data.displayName) || "TOEIC Learner",
+    searchName: data.searchName || normalizeSearchName(data.displayName),
+    email: data.email || "",
+    photoURL: cleanPhotoUrl(data.photoURL),
+    stats: normalizeStats(data.stats || {}),
+    learning: { ...defaultLearning, ...(data.learning || {}) },
+  };
 }
 
 function mergeActivities(primaryItems, backupItems) {
@@ -440,6 +594,28 @@ function normalizeEmailPreferences(value = {}) {
     studyReminders: value.studyReminders !== false && defaultEmailPreferences.studyReminders,
     newLessonAlerts: value.newLessonAlerts !== false && defaultEmailPreferences.newLessonAlerts,
   };
+}
+
+function cleanDisplayName(value) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 48);
+}
+
+function cleanPhotoUrl(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (text.startsWith("data:image/")) return text.slice(0, 850000);
+  if (/^https?:\/\//i.test(text)) return text.slice(0, 2000);
+  return "";
+}
+
+function normalizeSearchName(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function getGoogleName(user) {

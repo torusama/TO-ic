@@ -10,14 +10,20 @@ import {
 import {
   claimStreakAnimation,
   ensureUserProfile,
+  followUser,
   getCompletedLessonKey,
+  listSuggestedProfiles,
   listenActivities,
   listenCompletedLessons,
+  listenFollowing,
   listenUserProfile,
   normalizeProfile,
   onUserChanged,
+  searchPublicProfiles,
   signOutUser,
+  unfollowUser,
   updateEmailPreferences,
+  updateUserProfile,
 } from "./user-service.js";
 import { loadCourseWithLessons } from "./course-service.js";
 import { rollStreakNumber, setStreakNumber } from "./streak-animation.js";
@@ -33,6 +39,19 @@ const clearNotificationsBtn = document.querySelector("#clearNotificationsBtn");
 const emailStudyReminders = document.querySelector("#emailStudyReminders");
 const emailNewLessonAlerts = document.querySelector("#emailNewLessonAlerts");
 const emailSettingsStatus = document.querySelector("#emailSettingsStatus");
+const editProfileBtn = document.querySelector("#editProfileBtn");
+const editProfileModal = document.querySelector("#editProfileModal");
+const editProfileForm = document.querySelector("#editProfileForm");
+const displayNameInput = document.querySelector("#displayNameInput");
+const avatarUploadInput = document.querySelector("#avatarUploadInput");
+const editAvatarPreview = document.querySelector("#editAvatarPreview");
+const editProfileStatus = document.querySelector("#editProfileStatus");
+const findFriendsBtn = document.querySelector("#findFriendsBtn");
+const friendModal = document.querySelector("#friendModal");
+const friendSearchInput = document.querySelector("#friendSearchInput");
+const friendResults = document.querySelector("#friendResults");
+const friendSearchStatus = document.querySelector("#friendSearchStatus");
+const friendProfilePreview = document.querySelector("#friendProfilePreview");
 
 let activeUser = null;
 let activeProfile = normalizeProfile(null, {});
@@ -40,8 +59,13 @@ let activeNotifications = [];
 let activeActivities = [];
 let activeCompletedLessons = new Set();
 let activeCoursesById = new Map();
+let activeFollowing = new Set();
+let friendProfiles = [];
+let selectedFriendProfile = null;
+let pendingAvatarDataUrl = "";
 let unsubscribers = [];
 let courseDataVersion = 0;
+let friendSearchTimer = 0;
 const checkedProfileAnimations = new Set();
 
 setAuthState("signed-out");
@@ -57,6 +81,10 @@ if (!hasFirebaseConfig) {
     activeActivities = [];
     activeCompletedLessons = new Set();
     activeCoursesById = new Map();
+    activeFollowing = new Set();
+    friendProfiles = [];
+    selectedFriendProfile = null;
+    pendingAvatarDataUrl = "";
 
     if (!user) {
       activeProfile = normalizeProfile(null, {});
@@ -118,6 +146,14 @@ if (!hasFirebaseConfig) {
             activeCompletedLessons = new Set();
             renderProfile();
           }
+        ),
+        listenFollowing(
+          user.uid,
+          (following) => {
+            activeFollowing = following;
+            renderFriendLists();
+          },
+          (error) => console.warn("Could not listen to following:", error)
         ),
       ];
     } catch (error) {
@@ -202,6 +238,360 @@ clearNotificationsBtn?.addEventListener("click", async () => {
 [emailStudyReminders, emailNewLessonAlerts].forEach((toggle) => {
   toggle?.addEventListener("change", saveEmailSettings);
 });
+
+editProfileBtn?.addEventListener("click", openEditProfileModal);
+findFriendsBtn?.addEventListener("click", openFriendModal);
+
+document.querySelectorAll("[data-close-edit-modal]").forEach((button) => {
+  button.addEventListener("click", closeEditProfileModal);
+});
+
+document.querySelectorAll("[data-close-friend-modal]").forEach((button) => {
+  button.addEventListener("click", closeFriendModal);
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  closeEditProfileModal();
+  closeFriendModal();
+});
+
+avatarUploadInput?.addEventListener("change", async (event) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  if (!file.type.startsWith("image/")) {
+    setEditProfileStatus("Choose an image file for the avatar.");
+    return;
+  }
+
+  setEditProfileSaving(true, "Preparing avatar...");
+  try {
+    pendingAvatarDataUrl = await resizeAvatar(file);
+    if (editAvatarPreview) editAvatarPreview.src = pendingAvatarDataUrl;
+    setEditProfileSaving(false, "Avatar ready. Hit save to keep it.");
+  } catch (error) {
+    console.warn("Could not prepare avatar:", error);
+    pendingAvatarDataUrl = activeProfile.photoURL || "";
+    if (editAvatarPreview) editAvatarPreview.src = getAvatarUrl(activeProfile);
+    setEditProfileSaving(false, "Could not use that image. Try a smaller one.");
+  } finally {
+    event.target.value = "";
+  }
+});
+
+editProfileForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!activeUser) return;
+
+  const displayName = String(displayNameInput?.value || "").replace(/\s+/g, " ").trim();
+  if (!displayName) {
+    setEditProfileStatus("Display name cannot be empty.");
+    displayNameInput?.focus();
+    return;
+  }
+
+  setEditProfileSaving(true, "Saving profile...");
+  try {
+    await updateUserProfile(activeUser, {
+      displayName,
+      photoURL: pendingAvatarDataUrl || activeProfile.photoURL || "",
+    });
+    activeProfile = normalizeProfile(activeUser, {
+      ...activeProfile,
+      displayName,
+      photoURL: pendingAvatarDataUrl || activeProfile.photoURL || "",
+    });
+    renderProfile();
+    setEditProfileSaving(false, "Saved.");
+    window.setTimeout(closeEditProfileModal, 450);
+  } catch (error) {
+    console.warn("Could not save profile:", error);
+    setEditProfileSaving(false, "Could not save profile. Try again.");
+  }
+});
+
+friendSearchInput?.addEventListener("input", () => {
+  window.clearTimeout(friendSearchTimer);
+  friendSearchTimer = window.setTimeout(() => {
+    loadFriendProfiles(friendSearchInput.value);
+  }, 240);
+});
+
+friendResults?.addEventListener("click", handleFriendAction);
+friendProfilePreview?.addEventListener("click", handleFriendAction);
+
+function openEditProfileModal() {
+  if (!editProfileModal || !activeUser) return;
+
+  pendingAvatarDataUrl = activeProfile.photoURL || "";
+  if (displayNameInput) displayNameInput.value = activeProfile.displayName || "";
+  if (editAvatarPreview) editAvatarPreview.src = getAvatarUrl(activeProfile);
+  setEditProfileStatus("");
+  setEditProfileSaving(false);
+  setModalOpen(editProfileModal, true);
+  window.setTimeout(() => displayNameInput?.focus(), 0);
+}
+
+function closeEditProfileModal() {
+  if (!editProfileModal || editProfileModal.hidden) return;
+  setModalOpen(editProfileModal, false);
+  pendingAvatarDataUrl = "";
+  setEditProfileStatus("");
+}
+
+function openFriendModal() {
+  if (!friendModal || !activeUser) return;
+
+  setModalOpen(friendModal, true);
+  window.setTimeout(() => friendSearchInput?.focus(), 0);
+  if (!friendProfiles.length) {
+    loadFriendProfiles(friendSearchInput?.value || "");
+  } else {
+    renderFriendLists();
+  }
+}
+
+function closeFriendModal() {
+  if (!friendModal || friendModal.hidden) return;
+  setModalOpen(friendModal, false);
+}
+
+async function loadFriendProfiles(term = "") {
+  if (!activeUser) return;
+
+  const cleanTerm = String(term || "").trim();
+  setFriendStatus(cleanTerm ? "Searching..." : "Loading suggestions...");
+  if (friendResults) {
+    friendResults.innerHTML = `<div class="friend-empty">Loading learners...</div>`;
+  }
+
+  try {
+    friendProfiles = cleanTerm
+      ? await searchPublicProfiles(cleanTerm, activeUser.uid)
+      : await listSuggestedProfiles(activeUser.uid);
+    if (selectedFriendProfile && !friendProfiles.some((profile) => profile.uid === selectedFriendProfile.uid)) {
+      selectedFriendProfile = null;
+    }
+    if (!selectedFriendProfile && friendProfiles.length) {
+      selectedFriendProfile = friendProfiles[0];
+    }
+    setFriendStatus(cleanTerm ? `${friendProfiles.length} result${friendProfiles.length === 1 ? "" : "s"}` : "Suggested learners");
+    renderFriendLists();
+  } catch (error) {
+    console.warn("Could not load friend profiles:", error);
+    friendProfiles = [];
+    selectedFriendProfile = null;
+    setFriendStatus("Could not load friends");
+    if (friendResults) {
+      friendResults.innerHTML = `<div class="friend-empty">Friend list is shy right now. Try again.</div>`;
+    }
+    renderFriendProfilePreview();
+  }
+}
+
+async function handleFriendAction(event) {
+  if (!activeUser) return;
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target) return;
+
+  const viewBtn = target.closest("[data-view-uid]");
+  const followBtn = target.closest("[data-follow-uid]");
+  const unfollowBtn = target.closest("[data-unfollow-uid]");
+  const uid = viewBtn?.dataset.viewUid || followBtn?.dataset.followUid || unfollowBtn?.dataset.unfollowUid || "";
+  if (!uid) return;
+
+  const profile = getFriendProfile(uid);
+  if (!profile) return;
+
+  if (viewBtn) {
+    selectedFriendProfile = profile;
+    renderFriendLists();
+    return;
+  }
+
+  const button = followBtn || unfollowBtn;
+  button.disabled = true;
+
+  try {
+    if (followBtn) {
+      await followUser(activeUser, profile, activeProfile);
+      activeFollowing.add(profile.uid);
+    } else {
+      await unfollowUser(activeUser.uid, profile.uid);
+      activeFollowing.delete(profile.uid);
+    }
+    selectedFriendProfile = profile;
+    renderFriendLists();
+  } catch (error) {
+    console.warn("Could not update friend follow state:", error);
+    setFriendStatus("Could not update follow. Try again.");
+    button.disabled = false;
+  }
+}
+
+function renderFriendLists() {
+  if (!friendResults) return;
+
+  if (!friendProfiles.length) {
+    friendResults.innerHTML = `<div class="friend-empty">No learners found yet.</div>`;
+    renderFriendProfilePreview();
+    return;
+  }
+
+  friendResults.innerHTML = friendProfiles.map(renderFriendRow).join("");
+  renderFriendProfilePreview();
+}
+
+function renderFriendRow(profile) {
+  const isFollowing = activeFollowing.has(profile.uid);
+  const isSelected = selectedFriendProfile?.uid === profile.uid;
+
+  return `
+    <article class="friend-row ${isSelected ? "is-selected" : ""}">
+      <button class="friend-row__main" type="button" data-view-uid="${escapeHtml(profile.uid)}">
+        <img class="friend-avatar" src="${escapeHtml(getAvatarUrl(profile))}" alt="" />
+        <span class="friend-meta">
+          <strong>${escapeHtml(profile.displayName)}</strong>
+          <small>${escapeHtml(formatEmailHint(profile.email))}</small>
+        </span>
+      </button>
+      <div class="friend-actions">
+        <button class="friend-chip-btn friend-chip-btn--ghost" type="button" data-view-uid="${escapeHtml(profile.uid)}">View</button>
+        ${renderFollowButton(profile, isFollowing)}
+      </div>
+    </article>
+  `;
+}
+
+function renderFriendProfilePreview() {
+  if (!friendProfilePreview) return;
+
+  if (!selectedFriendProfile) {
+    friendProfilePreview.innerHTML = `<div class="friend-empty">Pick a learner to preview their profile.</div>`;
+    return;
+  }
+
+  const profile = selectedFriendProfile;
+  const isFollowing = activeFollowing.has(profile.uid);
+  const lessons = Number(profile.stats?.lessons || 0);
+  const streak = Number(profile.stats?.streak || 0);
+  const recentLesson = profile.learning?.recentLesson || "No lesson flex yet";
+  const recentCourse = profile.learning?.recentCourse || "No course yet";
+
+  friendProfilePreview.innerHTML = `
+    <div class="friend-profile-hero">
+      <img class="friend-profile-avatar" src="${escapeHtml(getAvatarUrl(profile))}" alt="" />
+      <div>
+        <h3>${escapeHtml(profile.displayName)}</h3>
+        <p>${escapeHtml(formatEmailHint(profile.email))}</p>
+      </div>
+    </div>
+    <div class="friend-stats">
+      <span><strong>${streak}</strong> streak</span>
+      <span><strong>${lessons}</strong> lessons</span>
+    </div>
+    <div class="friend-recent">
+      <small>Recent lesson</small>
+      <strong>${escapeHtml(recentLesson)}</strong>
+      <span>${escapeHtml(recentCourse)}</span>
+    </div>
+    <div class="friend-preview-actions">
+      ${renderFollowButton(profile, isFollowing)}
+    </div>
+  `;
+}
+
+function renderFollowButton(profile, isFollowing) {
+  return isFollowing
+    ? `<button class="friend-chip-btn is-following" type="button" data-unfollow-uid="${escapeHtml(profile.uid)}">Following</button>`
+    : `<button class="friend-chip-btn" type="button" data-follow-uid="${escapeHtml(profile.uid)}">Follow</button>`;
+}
+
+function getFriendProfile(uid) {
+  if (selectedFriendProfile?.uid === uid) return selectedFriendProfile;
+  return friendProfiles.find((profile) => profile.uid === uid) || null;
+}
+
+function setEditProfileSaving(isSaving, message = "") {
+  if (editProfileForm) {
+    editProfileForm.querySelectorAll("button, input").forEach((control) => {
+      control.disabled = isSaving;
+    });
+  }
+  setEditProfileStatus(message);
+}
+
+function setEditProfileStatus(message) {
+  if (editProfileStatus) editProfileStatus.textContent = message || "";
+}
+
+function setFriendStatus(message) {
+  if (friendSearchStatus) friendSearchStatus.textContent = message || "";
+}
+
+function setModalOpen(modal, isOpen) {
+  modal.hidden = !isOpen;
+  const hasOpenModal = Boolean((friendModal && !friendModal.hidden) || (editProfileModal && !editProfileModal.hidden));
+  document.body.classList.toggle("modal-open", hasOpenModal);
+}
+
+function getAvatarUrl(profile) {
+  return profile?.photoURL || "https://www.gravatar.com/avatar/?d=mp";
+}
+
+function formatEmailHint(email) {
+  const text = String(email || "").trim();
+  if (!text || !text.includes("@")) return "TOEIC learner";
+
+  const [name, domain] = text.split("@");
+  const visible = name.length <= 3 ? name : `${name.slice(0, 3)}...`;
+  return `${visible}@${domain}`;
+}
+
+function resizeAvatar(file) {
+  return new Promise((resolve, reject) => {
+    const imageUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(imageUrl);
+      const canvas = document.createElement("canvas");
+      const size = 320;
+      const side = Math.min(image.naturalWidth || image.width, image.naturalHeight || image.height);
+      const sourceX = ((image.naturalWidth || image.width) - side) / 2;
+      const sourceY = ((image.naturalHeight || image.height) - side) / 2;
+      canvas.width = size;
+      canvas.height = size;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        reject(new Error("Could not create avatar canvas"));
+        return;
+      }
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, size, size);
+      context.drawImage(image, sourceX, sourceY, side, side, 0, 0, size, size);
+
+      let quality = 0.82;
+      let dataUrl = canvas.toDataURL("image/jpeg", quality);
+      while (dataUrl.length > 650000 && quality > 0.42) {
+        quality -= 0.08;
+        dataUrl = canvas.toDataURL("image/jpeg", quality);
+      }
+
+      if (dataUrl.length > 650000) {
+        reject(new Error("Avatar data URL is too large"));
+        return;
+      }
+
+      resolve(dataUrl);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(imageUrl);
+      reject(new Error("Could not read image"));
+    };
+    image.src = imageUrl;
+  });
+}
 
 function renderProfile() {
   const unreadCount = activeNotifications.filter((item) => item.unread).length;
