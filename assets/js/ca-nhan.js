@@ -12,13 +12,16 @@ import {
   ensureUserProfile,
   followUser,
   getCompletedLessonKey,
+  getPublicProfile,
   listSuggestedProfiles,
   listenActivities,
   listenCompletedLessons,
-  listenFollowing,
+  listenFollowerProfiles,
+  listenFollowingProfiles,
   listenUserProfile,
   normalizeProfile,
   onUserChanged,
+  recordProfileView,
   searchPublicProfiles,
   signOutUser,
   unfollowUser,
@@ -51,7 +54,13 @@ const friendModal = document.querySelector("#friendModal");
 const friendSearchInput = document.querySelector("#friendSearchInput");
 const friendResults = document.querySelector("#friendResults");
 const friendSearchStatus = document.querySelector("#friendSearchStatus");
-const friendProfilePreview = document.querySelector("#friendProfilePreview");
+const profileSocialStats = document.querySelector("#profileSocialStats");
+const followersMetric = document.querySelector("#followersMetric");
+const followingMetric = document.querySelector("#followingMetric");
+const connectionsModal = document.querySelector("#connectionsModal");
+const connectionModalTitle = document.querySelector("#connectionModalTitle");
+const connectionList = document.querySelector("#connectionList");
+const connectionTabs = document.querySelector("#connectionTabs");
 
 let activeUser = null;
 let activeProfile = normalizeProfile(null, {});
@@ -60,12 +69,16 @@ let activeActivities = [];
 let activeCompletedLessons = new Set();
 let activeCoursesById = new Map();
 let activeFollowing = new Set();
+let activeFollowers = [];
+let activeFollowingProfiles = [];
 let friendProfiles = [];
-let selectedFriendProfile = null;
 let pendingAvatarDataUrl = "";
 let unsubscribers = [];
 let courseDataVersion = 0;
 let friendSearchTimer = 0;
+let activeConnectionTab = "followers";
+let isGuestMode = false;
+let guestUid = null;
 const checkedProfileAnimations = new Set();
 
 setAuthState("signed-out");
@@ -82,9 +95,53 @@ if (!hasFirebaseConfig) {
     activeCompletedLessons = new Set();
     activeCoursesById = new Map();
     activeFollowing = new Set();
+    activeFollowers = [];
+    activeFollowingProfiles = [];
     friendProfiles = [];
-    selectedFriendProfile = null;
     pendingAvatarDataUrl = "";
+
+    guestUid = new URLSearchParams(window.location.search).get("uid");
+    isGuestMode = guestUid && (!user || guestUid !== user.uid);
+
+    if (isGuestMode) {
+      setAuthState("signed-in");
+      try {
+        const guestProfile = await getPublicProfile(guestUid);
+        if (guestProfile) {
+          activeProfile = guestProfile;
+
+          loadProfileCourseData().then(() => {
+             if (loadVersion === courseDataVersion) renderProfile();
+          });
+
+          if (user) {
+            const loggedIn = await ensureUserProfile(user);
+            recordProfileView(user, guestUid, loggedIn);
+            unsubscribers = [
+              listenFollowingProfiles(user.uid, (followingProfiles) => {
+                activeFollowingProfiles = followingProfiles;
+                activeFollowing = new Set(followingProfiles.map((p) => p.uid));
+                renderProfile();
+              }),
+              listenActivities(guestUid, (items) => {
+                activeActivities = items;
+                renderProfile();
+              }),
+              listenCompletedLessons(guestUid, (lessonIds) => {
+                activeCompletedLessons = lessonIds;
+                renderProfile();
+              })
+            ];
+          }
+        } else {
+          activeProfile = normalizeProfile(null, { displayName: "User not found" });
+        }
+      } catch (error) {
+        activeProfile = normalizeProfile(null, { displayName: "Error loading profile" });
+      }
+      renderProfile();
+      return;
+    }
 
     if (!user) {
       activeProfile = normalizeProfile(null, {});
@@ -147,13 +204,25 @@ if (!hasFirebaseConfig) {
             renderProfile();
           }
         ),
-        listenFollowing(
+        listenFollowingProfiles(
           user.uid,
-          (following) => {
-            activeFollowing = following;
+          (followingProfiles) => {
+            activeFollowingProfiles = followingProfiles;
+            activeFollowing = new Set(followingProfiles.map((profile) => profile.uid));
+            renderProfile();
             renderFriendLists();
+            renderConnectionsModal();
           },
           (error) => console.warn("Could not listen to following:", error)
+        ),
+        listenFollowerProfiles(
+          user.uid,
+          (followers) => {
+            activeFollowers = followers;
+            renderProfile();
+            renderConnectionsModal();
+          },
+          (error) => console.warn("Could not listen to followers:", error)
         ),
       ];
     } catch (error) {
@@ -171,6 +240,9 @@ signOutBtn.addEventListener("click", async () => {
   activeNotifications = [];
   activeActivities = [];
   activeCompletedLessons = new Set();
+  activeFollowers = [];
+  activeFollowingProfiles = [];
+  activeFollowing = new Set();
   setAuthState("signed-out");
   resetProfile();
   renderProfile();
@@ -193,11 +265,19 @@ notificationList?.addEventListener("click", async (event) => {
   const item = event.target.closest("[data-notification-id]");
   if (!item) return;
 
+  const notifId = item.dataset.notificationId;
+  const notifData = activeNotifications.find((n) => n.id === notifId);
+
   try {
     if (event.target.closest("[data-delete-notification]")) {
-      await deleteNotification(activeUser.uid, item.dataset.notificationId);
+      await deleteNotification(activeUser.uid, notifId);
     } else {
-      await markNotificationRead(activeUser.uid, item.dataset.notificationId);
+      await markNotificationRead(activeUser.uid, notifId);
+      if (notifData && (notifData.type === "streak_invite" || notifData.type === "streak_accept")) {
+        if (typeof window.openStreakModal === "function") {
+          window.openStreakModal(false, true, notifData.type === "streak_invite" ? "invites" : "friends");
+        }
+      }
     }
   } catch (error) {
     console.warn("Could not update notification:", error);
@@ -242,6 +322,19 @@ clearNotificationsBtn?.addEventListener("click", async () => {
 editProfileBtn?.addEventListener("click", openEditProfileModal);
 findFriendsBtn?.addEventListener("click", openFriendModal);
 
+profileSocialStats?.addEventListener("click", (event) => {
+  const button = event.target instanceof Element ? event.target.closest("[data-connection-list]") : null;
+  if (!button) return;
+  openConnectionsModal(button.dataset.connectionList || "followers");
+});
+
+connectionTabs?.addEventListener("click", (event) => {
+  const button = event.target instanceof Element ? event.target.closest("[data-connection-tab]") : null;
+  if (!button) return;
+  activeConnectionTab = button.dataset.connectionTab || "followers";
+  renderConnectionsModal();
+});
+
 document.querySelectorAll("[data-close-edit-modal]").forEach((button) => {
   button.addEventListener("click", closeEditProfileModal);
 });
@@ -250,10 +343,15 @@ document.querySelectorAll("[data-close-friend-modal]").forEach((button) => {
   button.addEventListener("click", closeFriendModal);
 });
 
+document.querySelectorAll("[data-close-connections-modal]").forEach((button) => {
+  button.addEventListener("click", closeConnectionsModal);
+});
+
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   closeEditProfileModal();
   closeFriendModal();
+  closeConnectionsModal();
 });
 
 avatarUploadInput?.addEventListener("change", async (event) => {
@@ -319,7 +417,7 @@ friendSearchInput?.addEventListener("input", () => {
 });
 
 friendResults?.addEventListener("click", handleFriendAction);
-friendProfilePreview?.addEventListener("click", handleFriendAction);
+connectionList?.addEventListener("click", handleFriendAction);
 
 function openEditProfileModal() {
   if (!editProfileModal || !activeUser) return;
@@ -357,6 +455,18 @@ function closeFriendModal() {
   setModalOpen(friendModal, false);
 }
 
+function openConnectionsModal(type = "followers") {
+  if (!connectionsModal || !activeUser) return;
+  activeConnectionTab = type === "following" ? "following" : "followers";
+  renderConnectionsModal();
+  setModalOpen(connectionsModal, true);
+}
+
+function closeConnectionsModal() {
+  if (!connectionsModal || connectionsModal.hidden) return;
+  setModalOpen(connectionsModal, false);
+}
+
 async function loadFriendProfiles(term = "") {
   if (!activeUser) return;
 
@@ -370,23 +480,15 @@ async function loadFriendProfiles(term = "") {
     friendProfiles = cleanTerm
       ? await searchPublicProfiles(cleanTerm, activeUser.uid)
       : await listSuggestedProfiles(activeUser.uid);
-    if (selectedFriendProfile && !friendProfiles.some((profile) => profile.uid === selectedFriendProfile.uid)) {
-      selectedFriendProfile = null;
-    }
-    if (!selectedFriendProfile && friendProfiles.length) {
-      selectedFriendProfile = friendProfiles[0];
-    }
     setFriendStatus(cleanTerm ? `${friendProfiles.length} result${friendProfiles.length === 1 ? "" : "s"}` : "Suggested learners");
     renderFriendLists();
   } catch (error) {
     console.warn("Could not load friend profiles:", error);
     friendProfiles = [];
-    selectedFriendProfile = null;
     setFriendStatus("Could not load friends");
     if (friendResults) {
       friendResults.innerHTML = `<div class="friend-empty">Friend list is shy right now. Try again.</div>`;
     }
-    renderFriendProfilePreview();
   }
 }
 
@@ -395,21 +497,13 @@ async function handleFriendAction(event) {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
 
-  const viewBtn = target.closest("[data-view-uid]");
   const followBtn = target.closest("[data-follow-uid]");
   const unfollowBtn = target.closest("[data-unfollow-uid]");
-  const uid = viewBtn?.dataset.viewUid || followBtn?.dataset.followUid || unfollowBtn?.dataset.unfollowUid || "";
+  const uid = followBtn?.dataset.followUid || unfollowBtn?.dataset.unfollowUid || "";
   if (!uid) return;
 
   const profile = getFriendProfile(uid);
   if (!profile) return;
-
-  if (viewBtn) {
-    selectedFriendProfile = profile;
-    renderFriendProfilePreview();
-    friendProfilePreview?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    return;
-  }
 
   const button = followBtn || unfollowBtn;
   button.disabled = true;
@@ -418,12 +512,16 @@ async function handleFriendAction(event) {
     if (followBtn) {
       await followUser(activeUser, profile, activeProfile);
       activeFollowing.add(profile.uid);
+      if (!activeFollowingProfiles.some((item) => item.uid === profile.uid)) {
+        activeFollowingProfiles = [profile, ...activeFollowingProfiles];
+      }
     } else {
       await unfollowUser(activeUser.uid, profile.uid);
       activeFollowing.delete(profile.uid);
+      activeFollowingProfiles = activeFollowingProfiles.filter((item) => item.uid !== profile.uid);
     }
-    selectedFriendProfile = profile;
     renderFriendLists();
+    renderConnectionsModal();
   } catch (error) {
     console.warn("Could not update friend follow state:", error);
     setFriendStatus("Could not update follow. Try again.");
@@ -436,17 +534,42 @@ function renderFriendLists() {
 
   if (!friendProfiles.length) {
     friendResults.innerHTML = `<div class="friend-empty">No learners found yet.</div>`;
-    if (friendProfilePreview) friendProfilePreview.hidden = true;
     return;
   }
 
   friendResults.innerHTML = friendProfiles.map(renderFriendCard).join("");
+}
 
-  if (selectedFriendProfile) {
-    renderFriendProfilePreview();
-  } else if (friendProfilePreview) {
-    friendProfilePreview.hidden = true;
-  }
+function renderConnectionsModal() {
+  if (!connectionsModal || !connectionList) return;
+
+  const isFollowers = activeConnectionTab !== "following";
+  const items = isFollowers ? activeFollowers : activeFollowingProfiles;
+  if (connectionModalTitle) connectionModalTitle.textContent = isFollowers ? "Followers" : "Following";
+
+  connectionTabs?.querySelectorAll("[data-connection-tab]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.connectionTab === activeConnectionTab);
+  });
+
+  connectionList.innerHTML = items.length
+    ? items.map((profile) => renderConnectionItem(profile, isFollowers ? "followers" : "following")).join("")
+    : `<div class="connection-empty">${isFollowers ? "No followers yet." : "Not following anyone yet."}</div>`;
+}
+
+function renderConnectionItem(profile, type) {
+  const isFollowing = activeFollowing.has(profile.uid);
+  const label = type === "followers" ? (isFollowing ? "Follows you - following back" : "Follows you") : "Following";
+
+  return `
+    <article class="connection-item">
+      <a href="ca-nhan.html?uid=${escapeHtml(profile.uid)}"><img class="connection-item__avatar" src="${escapeHtml(getAvatarUrl(profile))}" alt="" /></a>
+      <div class="connection-item__body">
+        <a href="ca-nhan.html?uid=${escapeHtml(profile.uid)}" style="text-decoration:none;"><strong>${escapeHtml(profile.displayName)}</strong></a>
+        <span>${label}</span>
+      </div>
+      ${renderFollowButton(profile, isFollowing)}
+    </article>
+  `;
 }
 
 function renderFriendCard(profile) {
@@ -456,64 +579,19 @@ function renderFriendCard(profile) {
 
   return `
     <article class="friend-card">
-      <button class="friend-card__body" type="button" data-view-uid="${escapeHtml(profile.uid)}">
-        <img class="friend-card__avatar" src="${escapeHtml(getAvatarUrl(profile))}" alt="" />
-        <strong class="friend-card__name">${escapeHtml(profile.displayName)}</strong>
+      <div class="friend-card__body">
+        <a href="ca-nhan.html?uid=${escapeHtml(profile.uid)}"><img class="friend-card__avatar" src="${escapeHtml(getAvatarUrl(profile))}" alt="" /></a>
+        <a href="ca-nhan.html?uid=${escapeHtml(profile.uid)}" style="text-decoration:none;"><strong class="friend-card__name">${escapeHtml(profile.displayName)}</strong></a>
         <div class="friend-card__stats">
-          <span>🔥 <strong>${streak}</strong></span>
-          <span>📚 <strong>${lessons}</strong></span>
+          <span>${renderFriendStreakIcon()} <strong>${streak}</strong></span>
+          <span>${renderFriendLessonsIcon()} <strong>${lessons}</strong></span>
         </div>
-      </button>
+      </div>
       <div class="friend-card__action">
         ${renderFollowButton(profile, isFollowing)}
       </div>
     </article>
   `;
-}
-
-function renderFriendProfilePreview() {
-  if (!friendProfilePreview) return;
-
-  if (!selectedFriendProfile) {
-    friendProfilePreview.hidden = true;
-    return;
-  }
-
-  const profile = selectedFriendProfile;
-  const isFollowing = activeFollowing.has(profile.uid);
-  const lessons = Number(profile.stats?.lessons || 0);
-  const streak = Number(profile.stats?.streak || 0);
-  const recentLesson = profile.learning?.recentLesson || "None yet";
-  const recentCourse = profile.learning?.recentCourse || "None yet";
-
-  friendProfilePreview.hidden = false;
-  friendProfilePreview.innerHTML = `
-    <button class="friend-preview-close" type="button" data-close-preview aria-label="Close preview">&times;</button>
-    <div class="friend-profile-hero">
-      <img class="friend-profile-avatar" src="${escapeHtml(getAvatarUrl(profile))}" alt="" />
-      <div>
-        <h3>${escapeHtml(profile.displayName)}</h3>
-        <p>${escapeHtml(formatEmailHint(profile.email))}</p>
-      </div>
-    </div>
-    <div class="friend-stats">
-      <span><strong>${streak}</strong> streak</span>
-      <span><strong>${lessons}</strong> lessons</span>
-    </div>
-    <div class="friend-recent">
-      <small>Recent lesson</small>
-      <strong>${escapeHtml(recentLesson)}</strong>
-      <span>${escapeHtml(recentCourse)}</span>
-    </div>
-    <div class="friend-preview-actions">
-      ${renderFollowButton(profile, isFollowing)}
-    </div>
-  `;
-
-  friendProfilePreview.querySelector("[data-close-preview]")?.addEventListener("click", () => {
-    selectedFriendProfile = null;
-    friendProfilePreview.hidden = true;
-  });
 }
 
 function renderFollowButton(profile, isFollowing) {
@@ -522,9 +600,36 @@ function renderFollowButton(profile, isFollowing) {
     : `<button class="friend-chip-btn" type="button" data-follow-uid="${escapeHtml(profile.uid)}">Follow</button>`;
 }
 
+function renderFriendStreakIcon() {
+  return `
+    <svg class="friend-stat-icon friend-stat-icon--streak" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        class="friend-stat-icon__flame-main"
+        d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5Z"
+      />
+      <path class="friend-stat-icon__flame-core" d="M9.5 16.3c0-1.1.6-2.1 1.5-2.8.65.95 1.55 1.55 2.3 2.25.72.68 1.1 1.45 1.1 2.3a2.45 2.45 0 0 1-4.9 0v-1.75Z" />
+    </svg>
+  `;
+}
+
+function renderFriendLessonsIcon() {
+  return `
+    <svg class="friend-stat-icon friend-stat-icon--lessons" viewBox="0 0 24 24" aria-hidden="true">
+      <path class="friend-stat-icon__book-shadow" d="M7 5.2h8.2c1.45 0 2.8 1.18 2.8 2.63v10.92H8.2A3.2 3.2 0 0 1 5 15.55V7.2c0-1.1.9-2 2-2Z" />
+      <path class="friend-stat-icon__book-main" d="M5.8 4h7.9c1.55 0 2.8 1.25 2.8 2.8v10.45H7.6a3.1 3.1 0 0 1-3.1-3.1V5.3c0-.72.58-1.3 1.3-1.3Z" />
+      <path class="friend-stat-icon__book-page" d="M7.35 15.1h9.15v2.15H7.55c-.68 0-1.22-.48-1.22-1.08s.46-1.07 1.02-1.07Z" />
+      <path class="friend-stat-icon__book-mark" d="M13.1 4h2.25v6.25l-1.12-.82-1.13.82V4Z" />
+    </svg>
+  `;
+}
+
 function getFriendProfile(uid) {
-  if (selectedFriendProfile?.uid === uid) return selectedFriendProfile;
-  return friendProfiles.find((profile) => profile.uid === uid) || null;
+  return (
+    friendProfiles.find((profile) => profile.uid === uid) ||
+    activeFollowers.find((profile) => profile.uid === uid) ||
+    activeFollowingProfiles.find((profile) => profile.uid === uid) ||
+    null
+  );
 }
 
 function setEditProfileSaving(isSaving, message = "") {
@@ -546,21 +651,16 @@ function setFriendStatus(message) {
 
 function setModalOpen(modal, isOpen) {
   modal.hidden = !isOpen;
-  const hasOpenModal = Boolean((friendModal && !friendModal.hidden) || (editProfileModal && !editProfileModal.hidden));
+  const hasOpenModal = Boolean(
+    (friendModal && !friendModal.hidden) ||
+      (editProfileModal && !editProfileModal.hidden) ||
+      (connectionsModal && !connectionsModal.hidden)
+  );
   document.body.classList.toggle("modal-open", hasOpenModal);
 }
 
 function getAvatarUrl(profile) {
   return profile?.photoURL || "https://www.gravatar.com/avatar/?d=mp";
-}
-
-function formatEmailHint(email) {
-  const text = String(email || "").trim();
-  if (!text || !text.includes("@")) return "TOEIC learner";
-
-  const [name, domain] = text.split("@");
-  const visible = name.length <= 3 ? name : `${name.slice(0, 3)}...`;
-  return `${visible}@${domain}`;
 }
 
 function resizeAvatar(file) {
@@ -570,7 +670,7 @@ function resizeAvatar(file) {
     image.onload = () => {
       URL.revokeObjectURL(imageUrl);
       const canvas = document.createElement("canvas");
-      const size = 320;
+      const size = 120;
       const side = Math.min(image.naturalWidth || image.width, image.naturalHeight || image.height);
       const sourceX = ((image.naturalWidth || image.width) - side) / 2;
       const sourceY = ((image.naturalHeight || image.height) - side) / 2;
@@ -608,11 +708,173 @@ function resizeAvatar(file) {
 }
 
 function renderProfile() {
+  const isGuest = isGuestMode;
+  const editBtn = document.querySelector("#editProfileBtn");
+  const signOutBtn = document.querySelector("#signOutBtn");
+  const profileActions = document.querySelector(".profile-actions");
+  const findFriendsBtn = document.querySelector("#findFriendsBtn");
+  const lessonsCard = document.querySelector(".lessons-card");
+  const streakCard = document.querySelector(".streak-card");
+  const statStack = document.querySelector(".profile-stat-stack");
+  const profileHeading = document.querySelector(".profile-heading");
+
+  if (isGuest) {
+    if (editBtn) editBtn.hidden = true;
+    if (signOutBtn) signOutBtn.hidden = true;
+    if (findFriendsBtn) findFriendsBtn.style.display = "none";
+    if (statStack) {
+      statStack.style.gap = "0";
+      statStack.style.gridTemplateRows = "1fr";
+    }
+    if (lessonsCard) {
+      lessonsCard.style.height = "100%";
+      lessonsCard.style.minHeight = "100%";
+    }
+
+    if (profileHeading) {
+      if (!profileHeading.querySelector(".heading-content")) {
+        const p = profileHeading.querySelector("p");
+        const h1 = profileHeading.querySelector("h1");
+        if (p && h1) {
+          const wrapper = document.createElement("div");
+          wrapper.className = "heading-content";
+          profileHeading.insertBefore(wrapper, p);
+          wrapper.appendChild(p);
+          wrapper.appendChild(h1);
+          profileHeading.style.display = "flex";
+          profileHeading.style.justifyContent = "space-between";
+          profileHeading.style.alignItems = "center";
+        }
+      }
+
+      let backBtn = document.querySelector("#guestBackBtn");
+      if (!backBtn) {
+        backBtn = document.createElement("button");
+        backBtn.id = "guestBackBtn";
+        backBtn.className = "btn btn--secondary";
+        backBtn.style.padding = "0 24px";
+        backBtn.style.height = "48px";
+        backBtn.innerHTML = "BACK";
+        backBtn.onclick = () => window.history.back();
+        profileHeading.appendChild(backBtn);
+      } else {
+        backBtn.hidden = false;
+      }
+    }
+
+    let followGuestBtn = document.querySelector("#followGuestBtn");
+    if (!followGuestBtn) {
+       followGuestBtn = document.createElement("div");
+       followGuestBtn.id = "followGuestBtn";
+       profileActions?.appendChild(followGuestBtn);
+    }
+    if (followGuestBtn) followGuestBtn.hidden = false;
+
+    const isFollowing = activeFollowing.has(guestUid);
+    if (activeUser && activeProfile.uid) {
+      if (followGuestBtn) {
+        followGuestBtn.innerHTML = isFollowing
+          ? `<button class="btn btn--primary is-following" type="button" data-unfollow-uid="${escapeHtml(guestUid)}" style="width:100%;margin-top:10px;background:var(--page-bg);color:var(--dark-blue);border:2px solid var(--border-color);box-shadow:none;">Following</button>`
+          : `<button class="btn btn--primary" type="button" data-follow-uid="${escapeHtml(guestUid)}" style="width:100%;margin-top:10px;">Follow</button>`;
+      }
+    } else {
+      if (followGuestBtn) followGuestBtn.innerHTML = '';
+    }
+  } else {
+    if (editBtn) editBtn.hidden = false;
+    if (signOutBtn) signOutBtn.hidden = false;
+    if (findFriendsBtn) findFriendsBtn.style.display = "";
+    if (statStack) {
+      statStack.style.gap = "";
+      statStack.style.gridTemplateRows = "";
+    }
+    if (lessonsCard) {
+      lessonsCard.style.height = "";
+      lessonsCard.style.minHeight = "";
+    }
+    const followGuestBtn = document.querySelector("#followGuestBtn");
+    if (followGuestBtn) followGuestBtn.hidden = true;
+    const backBtn = document.querySelector("#guestBackBtn");
+    if (backBtn) backBtn.hidden = true;
+  }
+
+  const emailGrid = document.querySelector(".profile-email-grid");
+  const thongBao = document.querySelector("#thong-bao");
+  const socialStats = document.querySelector("#profileSocialStats");
+  const compactGrid = document.querySelector(".profile-compact-grid");
+  const chartGrid = document.querySelector(".profile-chart-grid");
+  const pieChartCard = document.querySelector(".profile-card--pie-chart");
+  const comboChartCard = document.querySelector(".profile-card--combo-chart");
+  const radarChartCard = document.querySelector(".profile-card--learning-map");
+
+  if (isGuest) {
+    if (emailGrid) emailGrid.hidden = true;
+    if (thongBao) thongBao.hidden = true;
+    if (socialStats) socialStats.hidden = true;
+    if (chartGrid) chartGrid.hidden = false;
+
+    if (comboChartCard && compactGrid) {
+      compactGrid.appendChild(comboChartCard);
+      if (radarChartCard) radarChartCard.style.gridColumn = "";
+      comboChartCard.style.gridColumn = "";
+
+      if (radarChartCard) {
+        comboChartCard.style.height = radarChartCard.offsetHeight ? radarChartCard.offsetHeight + "px" : "420px";
+      }
+
+      const comboCanvas = document.querySelector("#skillComboChart");
+      if (comboCanvas) {
+        comboCanvas.style.display = "";
+        comboCanvas.style.justifyContent = "";
+        comboCanvas.style.margin = "";
+        comboCanvas.style.width = "";
+      }
+    }
+
+    if (pieChartCard) {
+      pieChartCard.hidden = false;
+      pieChartCard.style.gridColumn = "1 / -1";
+
+      const pieCanvas = document.querySelector("#skillPieChart");
+      if (pieCanvas) {
+        pieCanvas.style.display = "flex";
+        pieCanvas.style.justifyContent = "center";
+        pieCanvas.style.margin = "0 auto";
+        pieCanvas.style.width = "100%";
+      }
+    }
+  } else {
+    if (emailGrid) emailGrid.hidden = false;
+    if (thongBao) thongBao.hidden = false;
+    if (socialStats) socialStats.hidden = false;
+    if (pieChartCard) {
+      pieChartCard.hidden = false;
+      pieChartCard.style.gridColumn = "";
+      const pieCanvas = document.querySelector("#skillPieChart");
+      if (pieCanvas) {
+        pieCanvas.style.display = "";
+        pieCanvas.style.justifyContent = "";
+        pieCanvas.style.margin = "";
+        pieCanvas.style.width = "";
+      }
+    }
+    if (chartGrid) chartGrid.hidden = false;
+
+    if (comboChartCard && chartGrid) {
+      chartGrid.appendChild(comboChartCard);
+      comboChartCard.style.gridColumn = "";
+      comboChartCard.style.height = "";
+      if (radarChartCard) radarChartCard.style.gridColumn = "";
+    }
+  }
+
   const unreadCount = activeNotifications.filter((item) => item.unread).length;
 
   document.querySelector("#userAvatar").src = activeProfile.photoURL || "https://www.gravatar.com/avatar/?d=mp";
   document.querySelector("#userName").textContent = activeProfile.displayName || "TOEIC Learner";
   document.querySelector("#userEmail").textContent = activeProfile.email || "";
+  if (followersMetric) followersMetric.textContent = String(activeProfile.stats?.followersCount ?? activeFollowers.length);
+  if (followingMetric) followingMetric.textContent = String(activeProfile.stats?.followingCount ?? activeFollowingProfiles.length);
   renderProfileStreak();
   document.querySelector("#lessonsMetric").textContent = activeProfile.stats?.lessons || 0;
   document.querySelector("#profileBell")?.classList.toggle("has-unread", unreadCount > 0);
@@ -640,11 +902,23 @@ function renderProfile() {
   renderLearningMap();
   renderSkillChartPanels();
   renderEmailSettings();
+
+  document.documentElement.classList.remove("is-guest-view-init");
 }
 
 async function renderProfileStreak() {
   const target = document.querySelector("#streakMetric");
+  const streakCard = target?.closest(".streak-card");
   const streak = Number(activeProfile.stats?.streak || 0);
+
+  if (streakCard) {
+    streakCard.style.cursor = "pointer";
+    streakCard.onclick = () => {
+      if (typeof window.openStreakModal === "function") {
+        window.openStreakModal(false);
+      }
+    };
+  }
 
   const lastStreakDate = activeProfile.stats?.lastStreakDate || "";
   const checkKey = `${activeUser?.uid || "guest"}__${lastStreakDate}__${streak}`;

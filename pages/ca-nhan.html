@@ -12,6 +12,30 @@
     <script type="module" src="../assets/js/auth-guard.js"></script>
     <script type="module" src="../assets/js/layout.js"></script>
     <script type="module" src="../assets/js/ca-nhan.js"></script>
+    <style>
+      html.is-guest-view-init #editProfileBtn,
+      html.is-guest-view-init #signOutBtn,
+      html.is-guest-view-init #findFriendsBtn,
+      html.is-guest-view-init #thong-bao,
+      html.is-guest-view-init .profile-email-grid,
+      html.is-guest-view-init #profileSocialStats,
+      html.is-guest-view-init .profile-chart-grid {
+        display: none !important;
+      }
+      html.is-guest-view-init .profile-stat-stack {
+        gap: 0 !important;
+        grid-template-rows: 1fr !important;
+      }
+      html.is-guest-view-init .lessons-card {
+        height: 100% !important;
+        min-height: 100% !important;
+      }
+    </style>
+    <script>
+      if (new URLSearchParams(window.location.search).get("uid")) {
+        document.documentElement.classList.add("is-guest-view-init");
+      }
+    </script>
   </head>
   <body data-page="ca-nhan" class="auth-loading">
     <div id="site-header"></div>
@@ -30,10 +54,20 @@
           <article class="profile-card profile-card--hero">
             <div class="profile-user">
               <img id="userAvatar" src="" alt="" />
-              <div>
+              <div class="profile-user__body">
                 <p class="eyebrow">Learner profile</p>
                 <h2 id="userName">TOEIC Learner</h2>
                 <p id="userEmail"></p>
+                <div id="profileSocialStats" class="profile-social-stats" aria-label="Profile social stats">
+                  <button class="profile-social-stat" type="button" data-connection-list="followers">
+                    <strong id="followersMetric">0</strong>
+                    <span>Followers</span>
+                  </button>
+                  <button class="profile-social-stat" type="button" data-connection-list="following">
+                    <strong id="followingMetric">0</strong>
+                    <span>Following</span>
+                  </button>
+                </div>
               </div>
             </div>
             <div class="profile-actions">
@@ -57,12 +91,14 @@
               <span>days in a row</span>
             </div>
           </article>
-          <article class="profile-card lessons-card metric-card">
-            <p class="eyebrow">Lessons studied</p>
+          <div class="profile-stat-stack">
             <button id="findFriendsBtn" class="friend-open-btn" type="button">Find friends</button>
-            <strong id="lessonsMetric">0</strong>
-            <span>lessons completed</span>
-          </article>
+            <article class="profile-card lessons-card metric-card">
+              <p class="eyebrow">Lessons studied</p>
+              <strong id="lessonsMetric">0</strong>
+              <span>lessons completed</span>
+            </article>
+          </div>
         </section>
 
         <section class="profile-email-grid">
@@ -172,7 +208,24 @@
             <small id="friendSearchStatus">Suggested learners</small>
           </div>
           <div id="friendResults" class="friend-card-grid"></div>
-          <div id="friendProfilePreview" class="friend-profile-preview" hidden></div>
+        </article>
+      </section>
+
+      <section id="connectionsModal" class="profile-modal" hidden>
+        <div class="profile-modal__backdrop" data-close-connections-modal></div>
+        <article class="profile-modal__panel profile-modal__panel--connections" role="dialog" aria-modal="true" aria-labelledby="connectionModalTitle">
+          <div class="profile-modal__head">
+            <div>
+              <p class="eyebrow">Social</p>
+              <h2 id="connectionModalTitle">Followers</h2>
+            </div>
+            <button class="profile-modal__close" type="button" data-close-connections-modal aria-label="Close">&times;</button>
+          </div>
+          <div id="connectionTabs" class="connection-tabs" role="tablist" aria-label="Connection list">
+            <button class="is-active" type="button" data-connection-tab="followers">Followers</button>
+            <button type="button" data-connection-tab="following">Following</button>
+          </div>
+          <div id="connectionList" class="connection-list"></div>
         </article>
       </section>
 

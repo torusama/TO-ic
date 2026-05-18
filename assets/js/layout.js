@@ -1,5 +1,5 @@
 import { ensureDefaultNotifications, deleteNotification, listenNotifications, markNotificationRead } from "./notification-service.js";
-import { claimStreakAnimation, ensureUserProfile, listenUserProfile, onUserChanged } from "./user-service.js";
+import { claimStreakAnimation, ensureUserProfile, listenUserProfile, onUserChanged, getMutualFollowers, sendStreakInvite, getPairStreaks, acceptPairStreak, rejectPairStreak, getPublicProfile, sendPairStreakNudgeReminder } from "./user-service.js";
 import { rollStreakNumber, setStreakNumber } from "./streak-animation.js";
 
 const currentPage = document.body.dataset.page;
@@ -13,10 +13,19 @@ const links = [
 const header = document.querySelector("#site-header");
 let activeUser = null;
 let notifications = [];
+let activePairTab = "friends";
+let activeLoadPairFriends = null;
+let cachedMutuals = null;
+let cachedPairStreaks = null;
 let unsubscribeNotifications = () => {};
 let unsubscribeHeaderProfile = () => {};
 let closeTimer;
+let cachedProfile = null;
 const checkedHeaderAnimations = new Set();
+const playedStreakPopupKeys = new Set();
+const shownPairNudgeKeys = new Set();
+let shouldCheckPairNudgeAfterStreak = false;
+let activePairNudgeCandidate = null;
 
 if (header) {
   header.innerHTML = `
@@ -32,6 +41,13 @@ if (header) {
               <path fill="#ffc800" d="M9.5 16.3c0-1.1.6-2.1 1.5-2.8.65.95 1.55 1.55 2.3 2.25.72.68 1.1 1.45 1.1 2.3a2.45 2.45 0 0 1-4.9 0v-1.75Z" />
             </svg>
             <strong class="streak-val" data-header-streak-val>0</strong>
+          </div>
+          <div class="header-streak header-streak--pair" id="headerPairStreak" style="display: none; margin-left: 8px;">
+            <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 18px; height: 18px; flex-shrink:0;">
+              <path class="flame-path-1" fill="#c084fc" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5Z" />
+              <path class="flame-path-2" fill="#e879f9" d="M9.5 16.3c0-1.1.6-2.1 1.5-2.8.65.95 1.55 1.55 2.3 2.25.72.68 1.1 1.45 1.1 2.3a2.45 2.45 0 0 1-4.9 0v-1.75Z" />
+            </svg>
+            <strong class="streak-val" data-header-pair-streak-val>0</strong>
           </div>
         </a>
         <div class="topbar__right">
@@ -66,7 +82,7 @@ if (header) {
         if (link.id === 'tu-vung') iconSvg = '<svg viewBox="0 0 24 24"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg>';
         if (link.id === 'luyen-de') iconSvg = '<svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>';
         if (link.id === 'ca-nhan') iconSvg = '<svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>';
-        
+
         return `
           <a class="mobile-bottom-nav__link ${link.id === currentPage ? "is-active" : ""}" href="${link.href}">
             <div class="mobile-bottom-nav__icon">${iconSvg}</div>
@@ -75,6 +91,69 @@ if (header) {
         `;
       }).join("")}
     </nav>
+    <section id="streakModal" class="profile-modal" hidden>
+      <div class="profile-modal__backdrop" data-close-streak-modal></div>
+      <article class="profile-modal__panel streak-modal-panel" role="dialog" aria-modal="true" aria-labelledby="streakModalTitle">
+        <div class="profile-modal__head" style="align-items: center; justify-content: space-between; display: flex; width: 100%;">
+          <div id="streakModalDefaultHead" style="display:block;">
+            <p class="eyebrow">Your Journey</p>
+            <h2 id="streakModalTitle">Streak Status</h2>
+          </div>
+          <div id="streakModalPairHead" style="display:none; align-items:center; gap: 12px;">
+            <button id="streakModalBackBtn" type="button" style="background:none; border:none; padding:0; cursor:pointer; color:var(--gray-light); display:grid; place-items:center;">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            </button>
+            <h2 style="margin:0; font-size:24px; color:var(--dark-blue);">Pair Streak</h2>
+          </div>
+          <button class="profile-modal__close" type="button" data-close-streak-modal aria-label="Close">&times;</button>
+        </div>
+
+        <div class="streak-modal-content">
+          <div id="streakViewMain">
+            <div class="streak-week-view">
+              <h3><strong id="streakModalCount" style="color:var(--orange)">0</strong> day streak</h3>
+              <div class="streak-week-grid" id="streakWeekGrid"></div>
+              <p class="streak-week-msg" id="streakWeekMsg">Complete a lesson today to extend your streak!</p>
+              <button class="pair-nudge-test-btn" type="button" id="testPairNudgeBtn">Test team nudge</button>
+            </div>
+
+            <div class="pair-streak-section">
+              <div class="pair-streak-init">
+                <button class="btn btn--secondary" id="loadPairStreakBtn" style="text-transform:uppercase; letter-spacing:0.5px;">Start a Pair Streak</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="streakViewPair" style="display:none;">
+            <div class="pair-streak-tabs" style="display:flex; margin-bottom:20px; border-bottom: 2px solid var(--border-color); padding-bottom: 4px; gap: 0; position: relative;">
+              <button type="button" id="tabStreakFriends" class="pair-streak-tab active" style="background:none; border:none; padding:8px 0; font-size:13px; font-weight:900; color:var(--dark-blue); cursor:pointer; flex: 1; text-align: center; text-transform: uppercase; letter-spacing:0.5px; transition: color 0.2s ease;">
+                Find Friends
+              </button>
+              <button type="button" id="tabStreakInvites" class="pair-streak-tab" style="background:none; border:none; padding:8px 0; font-size:13px; font-weight:900; color:var(--gray-light); cursor:pointer; flex: 1; text-align: center; text-transform: uppercase; letter-spacing:0.5px; transition: color 0.2s ease; position: relative;">
+                Invitations
+                <span id="streakInvitesBadge" style="display:none; position:absolute; top:-2px; right:4px; background:#ef4444; color:white; font-size:10px; font-weight:800; border-radius:10px; padding:2px 6px; line-height:1;">0</span>
+              </button>
+              <div id="tabSlider" style="position: absolute; bottom: -2px; left: 0; width: 50%; height: 3px; background: var(--dark-blue); border-radius: 3px; transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1); z-index: 1;"></div>
+            </div>
+            <div id="pairStreakList" class="pair-streak-list"></div>
+          </div>
+        </div>
+      </article>
+    </section>
+    <section id="pairNudgeModal" class="profile-modal" hidden>
+      <div class="profile-modal__backdrop" data-close-pair-nudge></div>
+      <article class="profile-modal__panel pair-nudge-panel" role="dialog" aria-modal="true" aria-labelledby="pairNudgeTitle">
+        <button class="profile-modal__close" type="button" data-close-pair-nudge aria-label="Close">&times;</button>
+        <img class="pair-nudge-avatar" id="pairNudgeAvatar" src="https://www.gravatar.com/avatar/?d=mp" alt="" />
+        <h2 id="pairNudgeTitle">Keep the team streak alive</h2>
+        <p id="pairNudgeBody">Your partner has not studied today yet.</p>
+        <div class="pair-nudge-actions">
+          <button class="btn btn--secondary" type="button" data-close-pair-nudge>Later</button>
+          <button class="btn btn--primary" type="button" id="sendPairNudgeBtn">Remind partner</button>
+        </div>
+        <p class="pair-nudge-status" id="pairNudgeStatus" aria-live="polite"></p>
+      </article>
+    </section>
   `;
 
   const menu = header.querySelector(".notification-menu");
@@ -88,6 +167,11 @@ if (header) {
 
   onUserChanged(async (user) => {
     activeUser = user;
+    cachedMutuals = null;
+    cachedPairStreaks = null;
+    cachedProfile = null;
+    activePairNudgeCandidate = null;
+    shouldCheckPairNudgeAfterStreak = false;
     unsubscribeNotifications();
     unsubscribeHeaderProfile();
     notifications = [];
@@ -98,6 +182,7 @@ if (header) {
 
     try {
       const profile = await ensureUserProfile(user);
+      cachedProfile = profile;
       await ensureDefaultNotifications(user);
       unsubscribeNotifications = listenNotifications(
         user.uid,
@@ -115,7 +200,10 @@ if (header) {
       renderHeaderStreak(profile);
       unsubscribeHeaderProfile = listenUserProfile(
         user.uid,
-        (nextProfile) => renderHeaderStreak(nextProfile),
+        (nextProfile) => {
+          cachedProfile = nextProfile;
+          renderHeaderStreak(nextProfile);
+        },
         (error) => console.warn("Could not listen to header profile:", error)
       );
     } catch (error) {
@@ -132,14 +220,22 @@ if (header) {
   });
 
   list?.addEventListener("click", async (event) => {
+
     const item = event.target.closest("[data-notification-id]");
     if (!item || !activeUser) return;
 
+    const notifId = item.dataset.notificationId;
+    const notifData = notifications.find((n) => n.id === notifId);
+
     try {
       if (event.target.closest("[data-delete-notification]")) {
-        await deleteNotification(activeUser.uid, item.dataset.notificationId);
+        await deleteNotification(activeUser.uid, notifId);
       } else {
-        await markNotificationRead(activeUser.uid, item.dataset.notificationId);
+        await markNotificationRead(activeUser.uid, notifId);
+        if (notifData && (notifData.type === "streak_invite" || notifData.type === "streak_accept")) {
+          closePopover();
+          openStreakModal(false, true, notifData.type === "streak_invite" ? "invites" : "friends");
+        }
       }
     } catch (error) {
       console.warn("Could not update notification:", error);
@@ -184,15 +280,22 @@ if (header) {
     list.innerHTML = notifications.length
       ? notifications
           .map(
-            (item) => `
-              <article class="notification-popover__item ${item.unread ? "is-unread" : ""}" data-notification-id="${item.id}" tabindex="0">
-                <div>
-                  <strong>${escapeHtml(item.title)}</strong>
-                  <span>${escapeHtml(item.body)}</span>
-                </div>
-                <button class="notification-popover__delete" type="button" data-delete-notification aria-label="Delete notification">&times;</button>
-              </article>
-            `
+            (item) => {
+              let actionHtml = "";
+              if (item.type === "streak_invite" && item.unread) {
+                actionHtml = `<button class="btn btn--primary" style="margin-top: 8px; font-size: 11px; padding: 4px 10px; height: auto; text-transform: uppercase;">View Invite</button>`;
+              }
+              return `
+                <article class="notification-popover__item ${item.unread ? "is-unread" : ""}" data-notification-id="${item.id}" tabindex="0">
+                  <div style="flex-grow:1; display:flex; flex-direction:column; align-items:flex-start;">
+                    <strong>${escapeHtml(item.title)}</strong>
+                    <span style="margin-bottom:2px;">${escapeHtml(item.body)}</span>
+                    ${actionHtml}
+                  </div>
+                  <button class="notification-popover__delete" type="button" data-delete-notification aria-label="Delete notification">&times;</button>
+                </article>
+              `;
+            }
           )
           .join("")
       : `<div class="notification-popover__empty">No notifications yet.</div>`;
@@ -217,26 +320,605 @@ if (header) {
   async function renderHeaderStreak(profile) {
     const headerStreak = header.querySelector("#headerStreak");
     const streakVal = header.querySelector("[data-header-streak-val]");
-    if (!headerStreak || !streakVal) return;
+    const headerPairStreak = header.querySelector("#headerPairStreak");
+    const pairStreakVal = header.querySelector("[data-header-pair-streak-val]");
+
+    if (!headerStreak || !streakVal || !headerPairStreak || !pairStreakVal) return;
 
     headerStreak.style.display = activeUser ? "flex" : "none";
     const streak = Number(profile?.stats?.streak || 0);
 
     const lastStreakDate = profile?.stats?.lastStreakDate || "";
     const checkKey = `${activeUser?.uid || "guest"}__${lastStreakDate}__${streak}`;
-    if (!activeUser || !lastStreakDate || streak <= 0 || checkedHeaderAnimations.has(checkKey)) {
-      setStreakNumber(streakVal, streak);
-      return;
-    }
-
-    checkedHeaderAnimations.add(checkKey);
-    const claim = await claimStreakAnimation(activeUser.uid, "header");
-    if (claim.shouldAnimate) {
-      rollStreakNumber(streakVal, claim.from, claim.to);
+    if (activeUser && lastStreakDate && streak > 0 && !checkedHeaderAnimations.has(checkKey)) {
+      checkedHeaderAnimations.add(checkKey);
+      const claim = await claimStreakAnimation(activeUser.uid, "header");
+      if (claim.shouldAnimate) {
+        rollStreakNumber(streakVal, claim.from, claim.to);
+        openStreakModal(true);
+      } else {
+        setStreakNumber(streakVal, streak);
+      }
     } else {
       setStreakNumber(streakVal, streak);
     }
+
+    // Pair Streak header display
+    if (activeUser) {
+      const pairStreaks = await getPairStreaks(activeUser.uid);
+      if (pairStreaks.length > 0) {
+        const highestPair = pairStreaks.reduce((prev, current) => (prev.streak > current.streak) ? prev : current);
+        headerPairStreak.style.display = "flex";
+        pairStreakVal.textContent = highestPair.streak;
+        if (highestPair.streak === 0) {
+          headerPairStreak.classList.add("is-broken");
+        } else {
+          headerPairStreak.classList.remove("is-broken");
+        }
+      } else {
+        headerPairStreak.style.display = "none";
+      }
+    } else {
+      headerPairStreak.style.display = "none";
+    }
   }
+
+  const streakModal = document.querySelector("#streakModal");
+  const closeStreakModalBtns = document.querySelectorAll("[data-close-streak-modal]");
+  const headerStreakBtn = header.querySelector("#headerStreak");
+  const pairNudgeModal = document.querySelector("#pairNudgeModal");
+  const closePairNudgeBtns = document.querySelectorAll("[data-close-pair-nudge]");
+  const sendPairNudgeBtn = document.querySelector("#sendPairNudgeBtn");
+  const pairNudgeBody = document.querySelector("#pairNudgeBody");
+  const pairNudgeAvatar = document.querySelector("#pairNudgeAvatar");
+  const pairNudgeStatus = document.querySelector("#pairNudgeStatus");
+  const testPairNudgeBtn = document.querySelector("#testPairNudgeBtn");
+
+  const viewMain = streakModal?.querySelector("#streakViewMain");
+  const viewPair = streakModal?.querySelector("#streakViewPair");
+  const headMain = streakModal?.querySelector("#streakModalDefaultHead");
+  const headPair = streakModal?.querySelector("#streakModalPairHead");
+  const backBtn = streakModal?.querySelector("#streakModalBackBtn");
+
+  if (headerStreakBtn) {
+    headerStreakBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openStreakModal(false);
+    });
+  }
+
+  const headerPairStreakBtn = header.querySelector("#headerPairStreak");
+  if (headerPairStreakBtn) {
+    headerPairStreakBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openStreakModal(false, true); // Opens directly in pair view
+    });
+  }
+
+  closeStreakModalBtns.forEach((btn) => btn.addEventListener("click", () => {
+    settleStreakDayAnimations(streakModal);
+    closeStreakModal();
+  }));
+
+  closePairNudgeBtns.forEach((btn) => btn.addEventListener("click", () => {
+    closePairNudgeModal();
+  }));
+
+  sendPairNudgeBtn?.addEventListener("click", async () => {
+    if (!activeUser || !activePairNudgeCandidate) return;
+    sendPairNudgeBtn.disabled = true;
+    sendPairNudgeBtn.textContent = "Sending...";
+    if (pairNudgeStatus) pairNudgeStatus.textContent = "AzoTa is drafting the reminder email...";
+
+    try {
+      const result = await sendPairStreakNudgeReminder(activeUser, activePairNudgeCandidate.partnerUid);
+      if (pairNudgeStatus) {
+        pairNudgeStatus.textContent = result.alreadySent
+          ? `Already reminded ${activePairNudgeCandidate.displayName} today.`
+          : `Reminder sent to ${activePairNudgeCandidate.displayName}.`;
+      }
+      sendPairNudgeBtn.textContent = result.alreadySent ? "Already sent" : "Sent";
+    } catch (error) {
+      console.warn("Could not send pair streak nudge:", error);
+      sendPairNudgeBtn.disabled = false;
+      sendPairNudgeBtn.textContent = "Remind partner";
+      if (pairNudgeStatus) pairNudgeStatus.textContent = error.message || "Could not send reminder. Try again.";
+    }
+  });
+
+  testPairNudgeBtn?.addEventListener("click", async () => {
+    testPairNudgeBtn.disabled = true;
+    testPairNudgeBtn.textContent = "Checking...";
+    try {
+      const opened = await maybeOpenPairNudgeModal({ force: true });
+      if (!opened) {
+        openPairNudgeModal({
+          key: `test__${Date.now()}`,
+          partnerUid: "",
+          displayName: "Demo Partner",
+          photoURL: "",
+          streak: 0,
+          isDemo: true,
+        });
+      }
+    } finally {
+      testPairNudgeBtn.disabled = false;
+      testPairNudgeBtn.textContent = "Test team nudge";
+    }
+  });
+
+  if (backBtn) {
+    backBtn.addEventListener("click", () => {
+      viewMain.style.display = "block";
+      viewPair.style.display = "none";
+      headMain.style.display = "block";
+      headPair.style.display = "none";
+    });
+  }
+
+  const tabFriends = streakModal?.querySelector("#tabStreakFriends");
+  const tabInvites = streakModal?.querySelector("#tabStreakInvites");
+  const tabSlider = streakModal?.querySelector("#tabSlider");
+
+  if (tabFriends && tabInvites) {
+    tabFriends.addEventListener("click", () => {
+      activePairTab = "friends";
+      tabFriends.style.color = "var(--dark-blue)";
+      tabInvites.style.color = "var(--gray-light)";
+      if (tabSlider) tabSlider.style.transform = "translateX(0)";
+      if (typeof activeLoadPairFriends === "function") activeLoadPairFriends();
+    });
+
+    tabInvites.addEventListener("click", () => {
+      activePairTab = "invites";
+      tabInvites.style.color = "var(--dark-blue)";
+      tabFriends.style.color = "var(--gray-light)";
+      if (tabSlider) tabSlider.style.transform = "translateX(100%)";
+      if (typeof activeLoadPairFriends === "function") activeLoadPairFriends();
+    });
+  }
+
+  window.openStreakModal = openStreakModal;
+
+  function closeStreakModal() {
+    if (streakModal) streakModal.hidden = true;
+    if (shouldCheckPairNudgeAfterStreak) {
+      shouldCheckPairNudgeAfterStreak = false;
+      maybeOpenPairNudgeModal();
+    }
+  }
+
+  function closePairNudgeModal() {
+    if (pairNudgeModal) pairNudgeModal.hidden = true;
+    activePairNudgeCandidate = null;
+  }
+
+  async function openStreakModal(isAnimate = false, startOnPairView = false, initialTab = "friends") {
+    if (!activeUser || !streakModal || !cachedProfile) return;
+    streakModal.hidden = false;
+
+    viewMain.style.display = startOnPairView ? "none" : "block";
+    viewPair.style.display = startOnPairView ? "block" : "none";
+    headMain.style.display = startOnPairView ? "none" : "block";
+    headPair.style.display = startOnPairView ? "flex" : "none";
+
+    if (startOnPairView) {
+      activePairTab = initialTab;
+      if (tabFriends && tabInvites) {
+        if (activePairTab === "invites") {
+          tabInvites.style.color = "var(--dark-blue)";
+          tabFriends.style.color = "var(--gray-light)";
+          if (tabSlider) tabSlider.style.transform = "translateX(100%)";
+        } else {
+          tabFriends.style.color = "var(--dark-blue)";
+          tabInvites.style.color = "var(--gray-light)";
+          if (tabSlider) tabSlider.style.transform = "translateX(0)";
+        }
+      }
+    }
+
+    const countEl = streakModal.querySelector("#streakModalCount");
+    const gridEl = streakModal.querySelector("#streakWeekGrid");
+    const msgEl = streakModal.querySelector("#streakWeekMsg");
+    const pairListEl = streakModal.querySelector("#pairStreakList");
+
+    countEl.parentElement.style.cursor = "";
+    countEl.parentElement.onclick = null;
+
+    const streak = Number(cachedProfile.stats?.streak || 0);
+    const lastStreakDate = cachedProfile.stats?.lastStreakDate || "";
+    const dayNames = ["M", "T", "W", "T", "F", "S", "S"];
+
+    const today = new Date();
+    const todayStr = getDateKey(today);
+    const isTodayCompleted = lastStreakDate === todayStr;
+    const streakPopupKey = `${activeUser.uid}__${todayStr}__${streak}`;
+    const shouldAnimateToday = Boolean(
+      isAnimate && isTodayCompleted && !playedStreakPopupKeys.has(streakPopupKey)
+    );
+
+    if (shouldAnimateToday) {
+      playedStreakPopupKeys.add(streakPopupKey);
+      shouldCheckPairNudgeAfterStreak = !startOnPairView;
+    }
+
+    countEl.textContent = String(streak);
+
+    const weekStart = getWeekStartDate(today);
+    gridEl.className = "streak-week-grid";
+    gridEl.innerHTML = renderStreakWeekDays(weekStart, dayNames, (date) => {
+      const dateKey = getDateKey(date);
+      const isToday = dateKey === todayStr;
+      return {
+        isToday,
+        isCompleted: isToday ? isTodayCompleted : date < today && streak > 0,
+        isAnimating: isToday && shouldAnimateToday,
+      };
+    });
+
+    if (shouldAnimateToday) {
+      settleStreakDayAnimationAfterPop(gridEl.querySelector(".streak-day__flame.is-animating"));
+    }
+
+    if (isTodayCompleted) {
+      msgEl.textContent = "You're on a roll! Come back tomorrow.";
+    } else {
+      msgEl.textContent = "Complete a lesson today to extend your streak!";
+    }
+
+    // Load Pair Streak Mutuals
+    pairListEl.innerHTML = `
+      <div class="pair-streak-init">
+        <button class="btn btn--secondary" id="loadPairStreakBtn">Start a Pair Streak</button>
+      </div>
+    `;
+
+    const loadBtn = document.getElementById("loadPairStreakBtn");
+
+    async function loadPairFriends() {
+      activeLoadPairFriends = loadPairFriends;
+      let mutuals = cachedMutuals;
+      let pairStreaks = cachedPairStreaks;
+
+      if (!mutuals || !pairStreaks) {
+        if (loadBtn) {
+          loadBtn.textContent = "LOADING FRIENDS...";
+          loadBtn.disabled = true;
+        }
+
+        const [fetchedMutuals, fetchedPairStreaks] = await Promise.all([
+          getMutualFollowers(activeUser.uid),
+          getPairStreaks(activeUser.uid)
+        ]);
+
+        cachedMutuals = fetchedMutuals;
+        cachedPairStreaks = fetchedPairStreaks;
+        mutuals = fetchedMutuals;
+        pairStreaks = fetchedPairStreaks;
+      }
+
+      settleStreakDayAnimations(streakModal);
+
+      // Switch view
+      viewMain.style.display = "none";
+      viewPair.style.display = "block";
+      headMain.style.display = "none";
+      headPair.style.display = "flex";
+
+      if (loadBtn) {
+        loadBtn.textContent = "START A PAIR STREAK";
+        loadBtn.disabled = false;
+      }
+
+      const pendingInvites = pairStreaks.filter(ps => ps.status === "pending" && ps.invitedBy !== activeUser.uid);
+
+      const tabBadge = streakModal.querySelector("#streakInvitesBadge");
+      if (tabBadge) {
+        if (pendingInvites.length > 0) {
+          tabBadge.style.display = "inline-block";
+          tabBadge.textContent = String(pendingInvites.length);
+        } else {
+          tabBadge.style.display = "none";
+        }
+      }
+
+      if (activePairTab === "invites") {
+        if (pendingInvites.length === 0) {
+          pairListEl.innerHTML = `
+            <div class="pair-streak-empty" style="width: 100%;">
+              <p>No pending invitations at the moment.</p>
+            </div>
+          `;
+        } else {
+          pairListEl.innerHTML = `
+            <div style="width: 100%;">
+              <div style="display: flex; flex-direction: column; gap: 12px;">
+                ${pendingInvites.map(item => {
+                  const partner = mutuals.find(m => m.uid === item.partnerUid) || {};
+                  const inviterName = partner.displayName || "A friend";
+                  const inviterPhotoURL = partner.photoURL || "";
+                  const notif = notifications.find(n => n.type === "streak_invite" && n.inviterUid === item.partnerUid);
+                  const notifId = notif ? notif.id : `streak_invite_${item.partnerUid}`;
+
+                  return `
+                    <div class="pair-streak-item" style="border-color: rgba(168, 85, 247, 0.3); background: rgba(168, 85, 247, 0.02);">
+                      <img src="${inviterPhotoURL || 'https://www.gravatar.com/avatar/?d=mp'}" alt="" />
+                      <span style="flex: 1; text-align: left;">${escapeHtml(inviterName)}</span>
+                      <div style="display: flex; gap: 6px;">
+                        <button class="btn btn--primary" style="font-size: 11px; padding: 6px 12px; height: auto;" data-popup-accept-uid="${item.partnerUid}" data-notification-id="${notifId}">Accept</button>
+                        <button class="btn btn--secondary" style="font-size: 11px; padding: 6px 12px; height: auto; background: #fee2e2; color: #ef4444; border-color: #fca5a5;" data-popup-reject-uid="${item.partnerUid}" data-notification-id="${notifId}">Reject</button>
+                      </div>
+                    </div>
+                  `;
+                }).join("")}
+              </div>
+            </div>
+          `;
+        }
+      } else {
+        if (mutuals.length === 0) {
+          pairListEl.innerHTML = `
+            <div class="pair-streak-empty" style="width: 100%;">
+              <p>You have no mutual followers.</p>
+              <a class="btn btn--secondary" href="./ca-nhan.html#friendModal" style="margin-top:16px;text-decoration:none;display:inline-block;padding:8px 16px;font-size:12px;text-transform:uppercase;">Find friends</a>
+            </div>
+          `;
+        } else {
+          pairListEl.innerHTML = `
+            <div style="width: 100%;">
+              <div style="display: flex; flex-direction: column; gap: 12px;">
+                ${mutuals.map((m) => {
+                  const activePair = pairStreaks.find(ps => ps.partnerUid === m.uid);
+                  let actionButtonHtml = "";
+
+                  if (activePair) {
+                    if (activePair.status === "pending") {
+                      if (activePair.invitedBy === activeUser.uid) {
+                        actionButtonHtml = `<button class="btn btn--secondary pair-streak-invite-btn" type="button" disabled>Sent!</button>`;
+                      } else {
+                        actionButtonHtml = `<span style="font-size: 12px; font-weight: 800; color: #a855f7; font-style: italic;">Invited you</span>`;
+                      }
+                    } else {
+                      actionButtonHtml = `
+                        <div class="pair-streak-badge">
+                          <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 16px; height: 16px; flex-shrink:0;">
+                            <path fill="#c084fc" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5Z" />
+                            <path fill="#e879f9" d="M9.5 16.3c0-1.1.6-2.1 1.5-2.8.65.95 1.55 1.55 2.3 2.25.72.68 1.1 1.45 1.1 2.3a2.45 2.45 0 0 1-4.9 0v-1.75Z" />
+                          </svg>
+                          <span>${activePair.streak} days</span>
+                        </div>
+                      `;
+                    }
+                  } else {
+                    actionButtonHtml = `<button class="btn btn--primary pair-streak-invite-btn" type="button" data-invite-uid="${m.uid}">Invite</button>`;
+                  }
+
+                  return `
+                    <div class="pair-streak-item">
+                      <img src="${m.photoURL || 'https://www.gravatar.com/avatar/?d=mp'}" alt="" />
+                      <span>${escapeHtml(m.displayName)}</span>
+                      ${actionButtonHtml}
+                    </div>
+                  `;
+                }).join("")}
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      const inviteBtns = pairListEl.querySelectorAll("[data-invite-uid]");
+      inviteBtns.forEach(ibtn => ibtn.addEventListener("click", async (ev) => {
+        const targetUid = ev.target.dataset.inviteUid;
+        ev.target.disabled = true;
+        ev.target.textContent = "Sent!";
+        ev.target.classList.replace("btn--primary", "btn--secondary");
+        await sendStreakInvite(activeUser, targetUid);
+        cachedPairStreaks = null;
+        await loadPairFriends();
+      }));
+
+      // Accept buttons click inside popup
+      const acceptBtns = pairListEl.querySelectorAll("[data-popup-accept-uid]");
+      acceptBtns.forEach(abtn => abtn.addEventListener("click", async (ev) => {
+        const targetBtn = ev.target.closest("[data-popup-accept-uid]");
+        const notifId = targetBtn.dataset.notificationId;
+        const inviterUid = targetBtn.dataset.popupAcceptUid;
+
+        const itemEl = targetBtn.closest(".pair-streak-item");
+        const allBtns = itemEl.querySelectorAll("button");
+        allBtns.forEach(b => b.disabled = true);
+        targetBtn.textContent = "Accepted!";
+
+        try {
+          await acceptPairStreak(activeUser, inviterUid);
+          await markNotificationRead(activeUser.uid, notifId);
+          cachedPairStreaks = null;
+          await loadPairFriends();
+          if (cachedProfile) renderHeaderStreak(cachedProfile);
+        } catch (err) {
+          console.warn("Could not accept invite inside popup:", err);
+          allBtns.forEach(b => b.disabled = false);
+          targetBtn.textContent = "Accept";
+        }
+      }));
+
+      // Reject buttons click inside popup
+      const rejectBtns = pairListEl.querySelectorAll("[data-popup-reject-uid]");
+      rejectBtns.forEach(rbtn => rbtn.addEventListener("click", async (ev) => {
+        const targetBtn = ev.target.closest("[data-popup-reject-uid]");
+        const notifId = targetBtn.dataset.notificationId;
+        const inviterUid = targetBtn.dataset.popupRejectUid;
+
+        const itemEl = targetBtn.closest(".pair-streak-item");
+        const allBtns = itemEl.querySelectorAll("button");
+        allBtns.forEach(b => b.disabled = true);
+        targetBtn.textContent = "Rejected";
+
+        try {
+          await rejectPairStreak(activeUser, inviterUid);
+          await deleteNotification(activeUser.uid, notifId);
+          cachedPairStreaks = null;
+          await loadPairFriends();
+        } catch (err) {
+          console.warn("Could not reject invite inside popup:", err);
+          allBtns.forEach(b => b.disabled = false);
+          targetBtn.textContent = "Reject";
+        }
+      }));
+    }
+
+    if (loadBtn) {
+      loadBtn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        await loadPairFriends();
+      });
+    }
+
+    if (startOnPairView) {
+      loadPairFriends();
+    }
+  }
+
+  async function maybeOpenPairNudgeModal({ force = false } = {}) {
+    if (!activeUser || !cachedProfile || !pairNudgeModal) return;
+
+    const todayStr = getDateKey(new Date());
+    if (!force && cachedProfile.stats?.lastStreakDate !== todayStr) return false;
+
+    try {
+      const pairStreaks = await getPairStreaks(activeUser.uid);
+      const candidates = [];
+
+      for (const pair of pairStreaks) {
+        if (pair.status !== "active") continue;
+
+        const partner = await getPublicProfile(pair.partnerUid);
+        if (!partner) continue;
+
+        const key = `${activeUser.uid}__${pair.partnerUid}__${todayStr}`;
+        const isEligible = cachedProfile.stats?.lastStreakDate === todayStr
+          && pair.lastUpdateDate !== todayStr
+          && partner.stats?.lastStreakDate !== todayStr;
+
+        if (!force && !isEligible) continue;
+        if (!force && shownPairNudgeKeys.has(key)) continue;
+
+        candidates.push({
+          key,
+          partnerUid: pair.partnerUid,
+          displayName: partner.displayName || "your partner",
+          photoURL: partner.photoURL || "",
+          streak: Number(pair.streak || 0),
+          isDemo: false,
+          isTestCandidate: force && !isEligible,
+        });
+      }
+
+      if (!candidates.length) return false;
+
+      candidates.sort((a, b) => b.streak - a.streak);
+      openPairNudgeModal(candidates[0], { force });
+      return true;
+    } catch (error) {
+      console.warn("Could not check pair streak nudge:", error);
+      return false;
+    }
+  }
+
+  function openPairNudgeModal(candidate, { force = false } = {}) {
+    activePairNudgeCandidate = candidate;
+    if (!force) shownPairNudgeKeys.add(candidate.key);
+
+    if (pairNudgeAvatar) pairNudgeAvatar.src = candidate.photoURL || "https://www.gravatar.com/avatar/?d=mp";
+    if (pairNudgeBody) {
+      pairNudgeBody.textContent = candidate.isDemo
+        ? "Demo Partner has not studied today yet. This is only a UI preview because no active pair was found."
+        : `${candidate.displayName} has not studied today yet. Remind them to finish one lesson so your team streak can increase.`;
+    }
+    if (pairNudgeStatus) {
+      pairNudgeStatus.textContent = candidate.isDemo
+        ? "Demo mode: sending is disabled."
+        : candidate.isTestCandidate
+          ? "Test mode: the API will still check real send conditions."
+          : "";
+    }
+    if (sendPairNudgeBtn) {
+      sendPairNudgeBtn.disabled = Boolean(candidate.isDemo);
+      sendPairNudgeBtn.textContent = candidate.isDemo ? "Demo only" : "Remind partner";
+    }
+    pairNudgeModal.hidden = false;
+  }
+}
+
+function renderStreakWeekDays(weekStart, dayNames, getDayState) {
+  let html = "";
+  for (let i = 0; i < 7; i++) {
+    const date = addDays(weekStart, i);
+    const state = getDayState(date, i);
+    let flameClass = "";
+
+    if (state.isCompleted) {
+      flameClass = "is-completed";
+    }
+    if (state.isAnimating) {
+      flameClass = "is-animating";
+    }
+
+    html += `
+      <div class="streak-day ${state.isToday ? "is-today" : ""}">
+        <span class="streak-day__label">${dayNames[i]}</span>
+        <div class="streak-day__flame ${flameClass}">
+           <svg viewBox="0 0 24 24" aria-hidden="true">
+             <path fill="currentColor" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5Z" />
+           </svg>
+           <div class="streak-day__check">✓</div>
+        </div>
+      </div>
+    `;
+  }
+  return html;
+}
+
+function getWeekStartDate(date) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  const day = start.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  start.setDate(start.getDate() + diff);
+  return start;
+}
+
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function getDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function finishStreakDayAnimation(flameEl) {
+  if (!flameEl) return;
+  flameEl.classList.remove("is-animating");
+  flameEl.classList.add("is-completed");
+}
+
+function settleStreakDayAnimations(root) {
+  root?.querySelectorAll(".streak-day__flame.is-animating").forEach(finishStreakDayAnimation);
+}
+
+function settleStreakDayAnimationAfterPop(flameEl) {
+  if (!flameEl) return;
+  const finish = () => finishStreakDayAnimation(flameEl);
+  flameEl.querySelector(".streak-day__check")?.addEventListener("animationend", finish, { once: true });
+  window.setTimeout(finish, 1100);
 }
 
 function escapeHtml(value) {

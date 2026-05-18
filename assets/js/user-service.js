@@ -20,6 +20,7 @@ import {
   setDoc,
   writeBatch,
   orderBy,
+  where,
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 const defaultStats = { streak: 0, lessons: 0 };
@@ -68,9 +69,12 @@ export async function ensureUserProfile(user) {
 
   const ref = doc(db, "users", user.uid);
   const snapshot = await getDoc(ref);
-  const stored = snapshot.exists() ? snapshot.data() : {};
-  const profile = normalizeProfile(user, stored);
 
+  if (snapshot.exists()) {
+    return normalizeProfile(user, snapshot.data());
+  }
+
+  const profile = normalizeProfile(user, {});
   await setDoc(
     ref,
     {
@@ -82,7 +86,7 @@ export async function ensureUserProfile(user) {
       stats: profile.stats,
       learning: profile.learning,
       emailPreferences: profile.emailPreferences,
-      createdAt: stored.createdAt || serverTimestamp(),
+      createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     },
     { merge: true }
@@ -132,6 +136,24 @@ export function listenFollowing(uid, callback, onError = console.warn) {
   );
 }
 
+export function listenFollowingProfiles(uid, callback, onError = console.warn) {
+  if (!db || !uid) return () => {};
+  return onSnapshot(
+    collection(db, "users", uid, "following"),
+    (snapshot) => callback(snapshot.docs.map((docSnap) => normalizeConnectionProfile(docSnap.id, docSnap.data(), "following"))),
+    onError
+  );
+}
+
+export function listenFollowerProfiles(uid, callback, onError = console.warn) {
+  if (!db || !uid) return () => {};
+  return onSnapshot(
+    collection(db, "users", uid, "followers"),
+    (snapshot) => callback(snapshot.docs.map((docSnap) => normalizeConnectionProfile(docSnap.id, docSnap.data(), "followers"))),
+    onError
+  );
+}
+
 export async function listSuggestedProfiles(uid) {
   if (!db || !uid) return [];
   const snapshot = await getDocs(query(collection(db, "publicProfiles"), orderBy("updatedAt", "desc"), limit(30)));
@@ -147,6 +169,18 @@ export async function searchPublicProfiles(term, uid) {
     .filter((profile) => profile.uid !== uid)
     .filter((profile) => !needle || profile.searchName.includes(needle) || profile.displayName.toLowerCase().includes(String(term || "").toLowerCase()))
     .slice(0, 20);
+}
+
+export async function getPublicProfile(uid) {
+  if (!db || !uid) return null;
+  try {
+    const snap = await getDoc(doc(db, "publicProfiles", uid));
+    if (!snap.exists()) return null;
+    return normalizePublicProfile(snap.id, snap.data());
+  } catch (error) {
+    console.warn("Could not fetch public profile:", error);
+    return null;
+  }
 }
 
 export async function followUser(user, targetProfile, followerProfile = {}) {
@@ -178,18 +212,233 @@ export async function followUser(user, targetProfile, followerProfile = {}) {
     },
     { merge: true }
   );
+  batch.set(
+    doc(db, "users", targetProfile.uid, "notifications", `follow_${user.uid}`),
+    {
+      title: "New Follower",
+      body: `${followerDisplayName} started following you.`,
+      unread: true,
+      createdAt: now,
+      updatedAt: now,
+    },
+    { merge: true }
+  );
+  batch.set(doc(db, "users", user.uid), { stats: { followingCount: increment(1) } }, { merge: true });
+  batch.set(doc(db, "publicProfiles", user.uid), { stats: { followingCount: increment(1) } }, { merge: true });
+  batch.set(doc(db, "users", targetProfile.uid), { stats: { followersCount: increment(1) } }, { merge: true });
+  batch.set(doc(db, "publicProfiles", targetProfile.uid), { stats: { followersCount: increment(1) } }, { merge: true });
   await batch.commit();
   return true;
+}
+
+export async function recordProfileView(viewerUser, targetUid, viewerProfile = {}) {
+  if (!db || !viewerUser || !targetUid || viewerUser.uid === targetUid) return false;
+
+  const viewerDisplayName = cleanDisplayName(viewerProfile.displayName) || cleanDisplayName(viewerUser.displayName) || "Someone";
+  const now = serverTimestamp();
+
+  try {
+    await setDoc(
+      doc(db, "users", targetUid, "notifications", `view_${viewerUser.uid}`),
+      {
+        title: "Profile View",
+        body: `${viewerDisplayName} recently viewed your profile.`,
+        unread: true,
+        createdAt: now,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+    return true;
+  } catch (error) {
+    console.warn("Could not record profile view:", error);
+    return false;
+  }
 }
 
 export async function unfollowUser(uid, targetUid) {
   if (!db || !uid || !targetUid || uid === targetUid) return false;
 
-  await Promise.all([
-    deleteDoc(doc(db, "users", uid, "following", targetUid)),
-    deleteDoc(doc(db, "users", targetUid, "followers", uid)),
-  ]);
+  const batch = writeBatch(db);
+  batch.delete(doc(db, "users", uid, "following", targetUid));
+  batch.delete(doc(db, "users", targetUid, "followers", uid));
+  batch.set(doc(db, "users", uid), { stats: { followingCount: increment(-1) } }, { merge: true });
+  batch.set(doc(db, "publicProfiles", uid), { stats: { followingCount: increment(-1) } }, { merge: true });
+  batch.set(doc(db, "users", targetUid), { stats: { followersCount: increment(-1) } }, { merge: true });
+  batch.set(doc(db, "publicProfiles", targetUid), { stats: { followersCount: increment(-1) } }, { merge: true });
+  await batch.commit();
   return true;
+}
+
+export async function getMutualFollowers(uid) {
+  if (!db || !uid) return [];
+  try {
+    const followingSnap = await getDocs(collection(db, "users", uid, "following"));
+    const followingIds = new Set(followingSnap.docs.map((d) => d.id));
+    if (followingIds.size === 0) return [];
+
+    const followersSnap = await getDocs(collection(db, "users", uid, "followers"));
+    return followersSnap.docs
+      .filter((d) => followingIds.has(d.id))
+      .map((d) => normalizeConnectionProfile(d.id, d.data(), "mutual"));
+  } catch (error) {
+    console.warn("Could not get mutual followers:", error);
+    return [];
+  }
+}
+
+export async function sendStreakInvite(user, targetUid) {
+  if (!db || !user || !targetUid) return false;
+  const now = serverTimestamp();
+  try {
+    // Fetch custom display name and avatar from database to get the most accurate details
+    const myDoc = await getDoc(doc(db, "users", user.uid));
+    const myData = myDoc.exists() ? myDoc.data() : {};
+    const displayName = cleanDisplayName(myData.displayName) || cleanDisplayName(user.displayName) || "A friend";
+    const photoURL = cleanPhotoUrl(myData.photoURL) || cleanPhotoUrl(user.photoURL) || "";
+
+    const pairId = [user.uid, targetUid].sort().join("_");
+
+    await Promise.all([
+      setDoc(
+        doc(db, "users", targetUid, "notifications", `streak_invite_${user.uid}`),
+        {
+          title: "Streak Society Invite",
+          body: `${displayName} invited you to maintain a streak together!`,
+          unread: true,
+          createdAt: now,
+          updatedAt: now,
+          type: "streak_invite",
+          inviterUid: user.uid,
+          inviterName: displayName,
+          inviterPhotoURL: photoURL,
+        },
+        { merge: true }
+      ),
+      setDoc(
+        doc(db, "pair_streaks", pairId),
+        {
+          uids: [user.uid, targetUid],
+          status: "pending",
+          invitedBy: user.uid,
+          createdAt: now,
+        },
+        { merge: true }
+      )
+    ]);
+
+    return true;
+  } catch (error) {
+    console.warn("Could not send streak invite:", error);
+    return false;
+  }
+}
+
+export async function getPairStreaks(uid) {
+  if (!db || !uid) return [];
+  try {
+    const q = query(collection(db, "pair_streaks"), where("uids", "array-contains", uid));
+    const snapshot = await getDocs(q);
+    const nowTime = new Date().getTime();
+
+    return snapshot.docs.map(doc => {
+      const data = doc.data();
+      const lastUpdateStr = data.lastUpdateDate || "";
+      const lastTime = lastUpdateStr ? new Date(lastUpdateStr).getTime() : nowTime;
+      const diffDays = lastUpdateStr ? Math.floor((nowTime - lastTime) / (1000 * 60 * 60 * 24)) : 0;
+      const status = data.status || "active";
+
+      return {
+        id: doc.id,
+        partnerUid: data.uids.find(u => u !== uid),
+        streak: data.streak || 0,
+        lastUpdateDate: lastUpdateStr,
+        isBroken: status === "active" && diffDays > 3,
+        status: status,
+        invitedBy: data.invitedBy || "",
+      };
+    }).filter(ps => ps.status === "pending" || !ps.isBroken); // Do not filter out pending ones
+  } catch (err) {
+    console.warn("Could not get pair streaks:", err);
+    return [];
+  }
+}
+
+export async function acceptPairStreak(user, targetUid) {
+  if (!db || !user || !targetUid) return false;
+  const pairId = [user.uid, targetUid].sort().join("_");
+
+  try {
+    await setDoc(doc(db, "pair_streaks", pairId), {
+      uids: [user.uid, targetUid],
+      streak: 0,
+      lastUpdateDate: "",
+      [`${user.uid}_lastUpdate`]: "",
+      [`${targetUid}_lastUpdate`]: "",
+      status: "active",
+    }, { merge: true });
+
+    // Fetch custom display name from database to get the most accurate name
+    const myDoc = await getDoc(doc(db, "users", user.uid));
+    const myData = myDoc.exists() ? myDoc.data() : {};
+    const displayName = cleanDisplayName(myData.displayName) || cleanDisplayName(user.displayName) || "A friend";
+
+    const now = serverTimestamp();
+    await setDoc(
+      doc(db, "users", targetUid, "notifications", `streak_accept_${user.uid}`),
+      {
+        title: "Streak Society Accepted",
+        body: `${displayName} accepted your streak invite! Let's maintain it together!`,
+        unread: true,
+        createdAt: now,
+        updatedAt: now,
+        type: "streak_accept",
+        partnerUid: user.uid,
+      },
+      { merge: true }
+    );
+
+    await updateActivePairStreaks(user.uid);
+
+    return true;
+  } catch (err) {
+    console.warn("Could not accept pair streak:", err);
+    return false;
+  }
+}
+
+export async function rejectPairStreak(user, targetUid) {
+  if (!db || !user || !targetUid) return false;
+  const pairId = [user.uid, targetUid].sort().join("_");
+  try {
+    await deleteDoc(doc(db, "pair_streaks", pairId));
+    return true;
+  } catch (err) {
+    console.warn("Could not reject pair streak:", err);
+    return false;
+  }
+}
+
+export async function sendPairStreakNudgeReminder(user, partnerUid) {
+  if (!user || !partnerUid) throw new Error("Missing pair streak reminder target.");
+  const token = await user.getIdToken();
+  const response = await fetch("/api/pair-streak-nudge", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ partnerUid }),
+  });
+  const bodyText = await response.text().catch(() => "");
+  const data = parseJsonBody(bodyText);
+  if (!response.ok || data.ok === false) {
+    if (response.status === 404) {
+      throw new Error("API reminder is not running here. Use Vercel dev or deploy before testing email sending.");
+    }
+    throw new Error(data.error || bodyText || `Could not send pair streak reminder (${response.status}).`);
+  }
+  return data;
 }
 
 export async function claimStreakAnimation(uid, target = "header") {
@@ -210,16 +459,13 @@ export async function claimStreakAnimation(uid, target = "header") {
       return { shouldAnimate: false, from: streak, to: streak };
     }
 
-    transaction.set(
-      userRef,
-      {
-        stats: {
-          [field]: todayStr,
-        },
-        updatedAt: serverTimestamp(),
+    transaction.update(userRef, {
+      stats: {
+        ...stats,
+        [field]: todayStr,
       },
-      { merge: true }
-    );
+      updatedAt: serverTimestamp(),
+    });
 
     return {
       shouldAnimate: true,
@@ -358,6 +604,7 @@ export async function completeLesson(user, lesson) {
   });
 
   if (changed) {
+    updateActivePairStreaks(user.uid).catch(console.warn);
     recordLessonActivity(user, {
       type: "lesson-completed",
       title: "Lesson completed",
@@ -455,6 +702,8 @@ function getPublicProfilePayload(uid, profile) {
     stats: {
       streak: Number(profile.stats?.streak || 0),
       lessons: Number(profile.stats?.lessons || 0),
+      followersCount: Number(profile.stats?.followersCount || 0),
+      followingCount: Number(profile.stats?.followingCount || 0),
       lastStreakDate: profile.stats?.lastStreakDate || "",
     },
     learning: {
@@ -474,6 +723,17 @@ function normalizePublicProfile(id, data = {}) {
     photoURL: cleanPhotoUrl(data.photoURL),
     stats: normalizeStats(data.stats || {}),
     learning: { ...defaultLearning, ...(data.learning || {}) },
+  };
+}
+
+function normalizeConnectionProfile(id, data = {}, type = "following") {
+  const uid = data.targetUid || data.followerUid || data.uid || id;
+  return {
+    uid,
+    displayName: cleanDisplayName(data.displayName) || "TOEIC Learner",
+    photoURL: cleanPhotoUrl(data.photoURL),
+    type,
+    updatedAt: data.updatedAt || data.followedAt || null,
   };
 }
 
@@ -608,6 +868,14 @@ function cleanPhotoUrl(value) {
   return "";
 }
 
+function parseJsonBody(value) {
+  try {
+    return value ? JSON.parse(value) : {};
+  } catch (_) {
+    return {};
+  }
+}
+
 function normalizeSearchName(value) {
   return String(value || "")
     .normalize("NFD")
@@ -624,4 +892,75 @@ function getGoogleName(user) {
 
 function getGooglePhoto(user) {
   return user?.photoURL || user?.providerData?.find((provider) => provider.providerId === "google.com")?.photoURL || "";
+}
+
+export async function updateActivePairStreaks(uid) {
+  if (!db || !uid) return;
+  const todayStr = getTodayKey();
+
+  try {
+    const q = query(collection(db, "pair_streaks"), where("uids", "array-contains", uid));
+    const snapshot = await getDocs(q);
+    const userRef = doc(db, "users", uid);
+    const userSnap = await getDoc(userRef);
+    const userData = userSnap.exists() ? userSnap.data() : {};
+    const userStats = userData.stats || {};
+
+    if (userStats.lastStreakDate !== todayStr) return;
+
+    for (const d of snapshot.docs) {
+      const pairRef = doc(db, "pair_streaks", d.id);
+
+      await runTransaction(db, async (transaction) => {
+        const pairSnap = await transaction.get(pairRef);
+        if (!pairSnap.exists()) return;
+
+        const data = pairSnap.data();
+        const uids = Array.isArray(data.uids) ? data.uids : [];
+        const partnerUid = uids.find((item) => item !== uid);
+        if (!partnerUid || (data.status || "active") !== "active") return;
+
+        if (data.lastUpdateDate === todayStr) return;
+
+        const partnerSnap = await transaction.get(doc(db, "publicProfiles", partnerUid));
+        const partnerStats = partnerSnap.exists() ? partnerSnap.data().stats || {} : {};
+        const partnerStudiedToday = partnerStats.lastStreakDate === todayStr;
+        const partnerMarkedToday = data[`${partnerUid}_lastUpdate`] === todayStr;
+        const update = {
+          [`${uid}_lastUpdate`]: todayStr,
+          updatedAt: serverTimestamp(),
+        };
+
+        if (partnerStudiedToday || partnerMarkedToday) {
+          const previousPairDate = data.lastUpdateDate || "";
+          const nextStreak = isYesterdayKey(previousPairDate, todayStr) ? Number(data.streak || 0) + 1 : 1;
+          transaction.set(
+            pairRef,
+            {
+              ...update,
+              ...(partnerStudiedToday ? { [`${partnerUid}_lastUpdate`]: todayStr } : {}),
+              streak: nextStreak,
+              lastUpdateDate: todayStr,
+            },
+            { merge: true }
+          );
+          return;
+        }
+
+        const lastPairDate = data.lastUpdateDate || "";
+        const lastTime = lastPairDate ? new Date(lastPairDate).getTime() : new Date().getTime();
+        const nowTime = new Date().getTime();
+        const diffDays = lastPairDate ? Math.floor((nowTime - lastTime) / (1000 * 60 * 60 * 24)) : 0;
+
+        if (diffDays > 3) {
+          transaction.delete(pairRef);
+          return;
+        }
+
+        transaction.set(pairRef, update, { merge: true });
+      });
+    }
+  } catch (err) {
+    console.warn("Failed to update active pair streaks:", err);
+  }
 }
