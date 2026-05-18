@@ -417,14 +417,14 @@ if (header) {
       if (pairNudgeStatus) {
         pairNudgeStatus.textContent = result.alreadySent
           ? `Already reminded ${activePairNudgeCandidate.displayName} today.`
-          : `Reminder sent to ${activePairNudgeCandidate.displayName}.`;
+          : `Reminder sent to ${activePairNudgeCandidate.displayName}. Check their inbox.`;
       }
       sendPairNudgeBtn.textContent = result.alreadySent ? "Already sent" : "Sent";
     } catch (error) {
       console.warn("Could not send pair streak nudge:", error);
       sendPairNudgeBtn.disabled = false;
       sendPairNudgeBtn.textContent = "Remind partner";
-      if (pairNudgeStatus) pairNudgeStatus.textContent = error.message || "Could not send reminder. Try again.";
+      if (pairNudgeStatus) pairNudgeStatus.textContent = formatPairNudgeError(error);
     }
   });
 
@@ -799,9 +799,13 @@ if (header) {
         if (!partner) continue;
 
         const key = `${activeUser.uid}__${pair.partnerUid}__${todayStr}`;
-        const isEligible = cachedProfile.stats?.lastStreakDate === todayStr
-          && pair.lastUpdateDate !== todayStr
-          && partner.stats?.lastStreakDate !== todayStr;
+        const blockReason = getPairNudgeBlockReason({
+          userStats: cachedProfile.stats || {},
+          pair,
+          partner,
+          todayStr,
+        });
+        const isEligible = !blockReason;
 
         if (!force && !isEligible) continue;
         if (!force && shownPairNudgeKeys.has(key)) continue;
@@ -812,6 +816,8 @@ if (header) {
           displayName: partner.displayName || "your partner",
           photoURL: partner.photoURL || "",
           streak: Number(pair.streak || 0),
+          blockReason,
+          isEligible,
           isDemo: false,
           isTestCandidate: force && !isEligible,
         });
@@ -819,7 +825,7 @@ if (header) {
 
       if (!candidates.length) return false;
 
-      candidates.sort((a, b) => b.streak - a.streak);
+      candidates.sort((a, b) => Number(b.isEligible) - Number(a.isEligible) || b.streak - a.streak);
       openPairNudgeModal(candidates[0], { force });
       return true;
     } catch (error) {
@@ -836,20 +842,55 @@ if (header) {
     if (pairNudgeBody) {
       pairNudgeBody.textContent = candidate.isDemo
         ? "Demo Partner has not studied today yet. This is only a UI preview because no active pair was found."
+        : candidate.blockReason
+          ? `${candidate.displayName} is your pair streak partner. A reminder can only be sent when you have studied today and they have not.`
         : `${candidate.displayName} has not studied today yet. Remind them to finish one lesson so your team streak can increase.`;
     }
     if (pairNudgeStatus) {
       pairNudgeStatus.textContent = candidate.isDemo
         ? "Demo mode: sending is disabled."
-        : candidate.isTestCandidate
-          ? "Test mode: the API will still check real send conditions."
+        : candidate.blockReason
+          ? candidate.blockReason
+          : candidate.isTestCandidate
+            ? "Test mode: the API will still check real send conditions."
           : "";
     }
     if (sendPairNudgeBtn) {
-      sendPairNudgeBtn.disabled = Boolean(candidate.isDemo);
-      sendPairNudgeBtn.textContent = candidate.isDemo ? "Demo only" : "Remind partner";
+      sendPairNudgeBtn.disabled = Boolean(candidate.isDemo || candidate.blockReason);
+      sendPairNudgeBtn.textContent = candidate.isDemo ? "Demo only" : candidate.blockReason ? "Not available" : "Remind partner";
     }
     pairNudgeModal.hidden = false;
+  }
+
+  function getPairNudgeBlockReason({ userStats = {}, pair = {}, partner = {}, todayStr }) {
+    const partnerName = partner.displayName || "Your partner";
+    if (userStats.lastStreakDate !== todayStr) {
+      return "Finish one lesson today before sending a team streak reminder.";
+    }
+    if (pair.lastUpdateDate === todayStr) {
+      return "Your team streak is already safe today, so no reminder is needed.";
+    }
+    if (partner.stats?.lastStreakDate === todayStr) {
+      return `${partnerName} already studied today, so no reminder is needed.`;
+    }
+    return "";
+  }
+
+  function formatPairNudgeError(error) {
+    const message = error?.message || "";
+    if (/Finish a lesson today/i.test(message)) {
+      return "Finish one lesson today before sending a team streak reminder.";
+    }
+    if (/already safe/i.test(message)) {
+      return "Your team streak is already safe today, so no reminder was sent.";
+    }
+    if (/disabled study reminder/i.test(message)) {
+      return "Your partner has turned off study reminder emails.";
+    }
+    if (/does not have an email/i.test(message)) {
+      return "Your partner does not have an email address yet.";
+    }
+    return message || "Could not send reminder. Try again.";
   }
 }
 
