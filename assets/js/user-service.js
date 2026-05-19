@@ -339,29 +339,21 @@ export async function getPairStreaks(uid) {
   try {
     const q = query(collection(db, "pair_streaks"), where("uids", "array-contains", uid));
     const snapshot = await getDocs(q);
-    const nowTime = new Date().getTime();
-
-    return snapshot.docs.map(doc => {
-      const data = doc.data();
-      const lastUpdateStr = data.lastUpdateDate || "";
-      const lastTime = lastUpdateStr ? new Date(lastUpdateStr).getTime() : nowTime;
-      const diffDays = lastUpdateStr ? Math.floor((nowTime - lastTime) / (1000 * 60 * 60 * 24)) : 0;
-      const status = data.status || "active";
-
-      return {
-        id: doc.id,
-        partnerUid: data.uids.find(u => u !== uid),
-        streak: data.streak || 0,
-        lastUpdateDate: lastUpdateStr,
-        isBroken: status === "active" && diffDays > 3,
-        status: status,
-        invitedBy: data.invitedBy || "",
-      };
-    }).filter(ps => ps.status === "pending" || !ps.isBroken); // Do not filter out pending ones
+    return normalizePairStreakSnapshot(snapshot, uid);
   } catch (err) {
     console.warn("Could not get pair streaks:", err);
     return [];
   }
+}
+
+export function listenPairStreaks(uid, callback, onError = console.warn) {
+  if (!db || !uid) return () => {};
+  const q = query(collection(db, "pair_streaks"), where("uids", "array-contains", uid));
+  return onSnapshot(
+    q,
+    (snapshot) => callback(normalizePairStreakSnapshot(snapshot, uid)),
+    onError
+  );
 }
 
 export async function acceptPairStreak(user, targetUid) {
@@ -737,6 +729,32 @@ function normalizeConnectionProfile(id, data = {}, type = "following") {
     photoURL: cleanPhotoUrl(data.photoURL),
     type,
     updatedAt: data.updatedAt || data.followedAt || null,
+  };
+}
+
+function normalizePairStreakSnapshot(snapshot, uid) {
+  const nowTime = new Date().getTime();
+  return snapshot.docs
+    .map((docSnap) => normalizePairStreakDoc(docSnap, uid, nowTime))
+    .filter((pair) => pair.status === "pending" || !pair.isBroken);
+}
+
+function normalizePairStreakDoc(docSnap, uid, nowTime = new Date().getTime()) {
+  const data = docSnap.data() || {};
+  const uids = Array.isArray(data.uids) ? data.uids : [];
+  const lastUpdateStr = data.lastUpdateDate || "";
+  const lastTime = lastUpdateStr ? new Date(lastUpdateStr).getTime() : nowTime;
+  const diffDays = lastUpdateStr ? Math.floor((nowTime - lastTime) / 86400000) : 0;
+  const status = data.status || "active";
+
+  return {
+    id: docSnap.id,
+    partnerUid: uids.find((item) => item !== uid) || "",
+    streak: Number(data.streak || 0),
+    lastUpdateDate: lastUpdateStr,
+    isBroken: status === "active" && diffDays > 3,
+    status,
+    invitedBy: data.invitedBy || "",
   };
 }
 

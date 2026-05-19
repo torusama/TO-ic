@@ -1,5 +1,5 @@
 import { ensureDefaultNotifications, deleteNotification, listenNotifications, markNotificationRead } from "./notification-service.js";
-import { claimStreakAnimation, ensureUserProfile, listenUserProfile, onUserChanged, getMutualFollowers, sendStreakInvite, getPairStreaks, acceptPairStreak, rejectPairStreak, getPublicProfile, sendPairStreakNudgeReminder } from "./user-service.js";
+import { claimStreakAnimation, ensureUserProfile, listenUserProfile, listenPairStreaks, onUserChanged, getMutualFollowers, getPairStreaks, sendStreakInvite, acceptPairStreak, rejectPairStreak, getPublicProfile, sendPairStreakNudgeReminder } from "./user-service.js";
 import { rollStreakNumber, setStreakNumber } from "./streak-animation.js";
 
 const currentPage = document.body.dataset.page;
@@ -19,6 +19,7 @@ let cachedMutuals = null;
 let cachedPairStreaks = null;
 let unsubscribeNotifications = () => {};
 let unsubscribeHeaderProfile = () => {};
+let unsubscribePairStreaks = () => {};
 let closeTimer;
 let cachedProfile = null;
 const checkedHeaderAnimations = new Set();
@@ -176,9 +177,11 @@ if (header) {
     shouldCheckPairNudgeAfterStreak = false;
     unsubscribeNotifications();
     unsubscribeHeaderProfile();
+    unsubscribePairStreaks();
     notifications = [];
     renderNotifications();
     renderHeaderStreak(null);
+    renderHeaderPairStreak([]);
 
     if (!user) return;
 
@@ -200,6 +203,18 @@ if (header) {
       );
 
       renderHeaderStreak(profile);
+      unsubscribePairStreaks = listenPairStreaks(
+        user.uid,
+        (items) => {
+          cachedPairStreaks = items;
+          renderHeaderPairStreak(items);
+        },
+        (error) => {
+          console.warn("Could not listen to pair streaks:", error);
+          cachedPairStreaks = [];
+          renderHeaderPairStreak([]);
+        }
+      );
       unsubscribeHeaderProfile = listenUserProfile(
         user.uid,
         (nextProfile) => {
@@ -322,10 +337,8 @@ if (header) {
   async function renderHeaderStreak(profile) {
     const headerStreak = header.querySelector("#headerStreak");
     const streakVal = header.querySelector("[data-header-streak-val]");
-    const headerPairStreak = header.querySelector("#headerPairStreak");
-    const pairStreakVal = header.querySelector("[data-header-pair-streak-val]");
 
-    if (!headerStreak || !streakVal || !headerPairStreak || !pairStreakVal) return;
+    if (!headerStreak || !streakVal) return;
 
     headerStreak.style.display = activeUser ? "flex" : "none";
     const streak = Number(profile?.stats?.streak || 0);
@@ -344,25 +357,29 @@ if (header) {
     } else {
       setStreakNumber(streakVal, streak);
     }
+  }
 
-    // Pair Streak header display
-    if (activeUser) {
-      const pairStreaks = await getPairStreaks(activeUser.uid);
-      if (pairStreaks.length > 0) {
-        const highestPair = pairStreaks.reduce((prev, current) => (prev.streak > current.streak) ? prev : current);
-        headerPairStreak.style.display = "flex";
-        pairStreakVal.textContent = highestPair.streak;
-        if (highestPair.streak === 0) {
-          headerPairStreak.classList.add("is-broken");
-        } else {
-          headerPairStreak.classList.remove("is-broken");
-        }
-      } else {
-        headerPairStreak.style.display = "none";
-      }
-    } else {
+  function renderHeaderPairStreak(pairStreaks = cachedPairStreaks) {
+    const headerPairStreak = header.querySelector("#headerPairStreak");
+    const pairStreakVal = header.querySelector("[data-header-pair-streak-val]");
+
+    if (!headerPairStreak || !pairStreakVal) return;
+
+    if (!activeUser || !Array.isArray(pairStreaks) || !pairStreaks.length) {
       headerPairStreak.style.display = "none";
+      return;
     }
+
+    const activePairs = pairStreaks.filter((pair) => pair.status === "active");
+    if (!activePairs.length) {
+      headerPairStreak.style.display = "none";
+      return;
+    }
+
+    const highestPair = activePairs.reduce((prev, current) => (prev.streak > current.streak ? prev : current));
+    headerPairStreak.style.display = "flex";
+    pairStreakVal.textContent = highestPair.streak;
+    headerPairStreak.classList.toggle("is-broken", highestPair.streak === 0);
   }
 
   const streakModal = document.querySelector("#streakModal");
@@ -559,11 +576,23 @@ if (header) {
       let mutuals = cachedMutuals;
       let pairStreaks = cachedPairStreaks;
 
+      settleStreakDayAnimations(streakModal);
+
+      viewMain.style.display = "none";
+      viewPair.style.display = "block";
+      headMain.style.display = "none";
+      headPair.style.display = "flex";
+
       if (!mutuals || !pairStreaks) {
         if (loadBtn) {
           loadBtn.textContent = "LOADING FRIENDS...";
           loadBtn.disabled = true;
         }
+        pairListEl.innerHTML = `
+          <div class="pair-streak-empty" style="width: 100%;">
+            <p>Loading pair streaks...</p>
+          </div>
+        `;
 
         const [fetchedMutuals, fetchedPairStreaks] = await Promise.all([
           getMutualFollowers(activeUser.uid),
@@ -575,14 +604,6 @@ if (header) {
         mutuals = fetchedMutuals;
         pairStreaks = fetchedPairStreaks;
       }
-
-      settleStreakDayAnimations(streakModal);
-
-      // Switch view
-      viewMain.style.display = "none";
-      viewPair.style.display = "block";
-      headMain.style.display = "none";
-      headPair.style.display = "flex";
 
       if (loadBtn) {
         loadBtn.textContent = "START A PAIR STREAK";
@@ -766,14 +787,16 @@ if (header) {
     if (cachedProfile.stats?.lastStreakDate !== todayStr) return false;
 
     try {
-      const pairStreaks = await getPairStreaks(activeUser.uid);
+      const pairStreaks = Array.isArray(cachedPairStreaks) ? cachedPairStreaks : await getPairStreaks(activeUser.uid);
+      const activePairs = pairStreaks.filter((pair) => pair.status === "active");
+      const partnerProfiles = await Promise.all(
+        activePairs.map((pair) => getPublicProfile(pair.partnerUid))
+      );
       const candidates = [];
 
-      for (const pair of pairStreaks) {
-        if (pair.status !== "active") continue;
-
-        const partner = await getPublicProfile(pair.partnerUid);
-        if (!partner) continue;
+      activePairs.forEach((pair, index) => {
+        const partner = partnerProfiles[index];
+        if (!partner) return;
 
         const key = `${activeUser.uid}__${pair.partnerUid}__${todayStr}`;
         const blockReason = getPairNudgeBlockReason({
@@ -784,8 +807,8 @@ if (header) {
         });
         const isEligible = !blockReason;
 
-        if (!isEligible) continue;
-        if (shownPairNudgeKeys.has(key)) continue;
+        if (!isEligible) return;
+        if (shownPairNudgeKeys.has(key)) return;
 
         candidates.push({
           key,
@@ -796,7 +819,7 @@ if (header) {
           blockReason,
           isEligible,
         });
-      }
+      });
 
       if (!candidates.length) return false;
 
