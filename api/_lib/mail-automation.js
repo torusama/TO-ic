@@ -140,14 +140,14 @@ async function sendPairStreakNudge({ requesterUid, partnerUid, testMode = false 
     pairData,
     todayKey,
   });
-  const emailCopy = isTestMode ? createPairStreakNudgeTestCopy(copy) : copy;
+  const emailCopy = copy;
   const now = admin.firestore.FieldValue.serverTimestamp();
 
   await sendMail({
     to: partnerData.email,
     copy: emailCopy,
     ctaUrl: `${getAppBaseUrl()}/pages/hoc-phan.html`,
-    type: isTestMode ? "pair-streak-nudge-test" : "pair-streak-nudge",
+    type: "pair-streak-nudge",
     user: partnerData,
   });
 
@@ -767,10 +767,6 @@ function getPairStreakNudgeFallback({ requesterName, firstName, pairStreak, toda
   return templates[hashText(`${requesterName}:${firstName}:${todayKey}`) % templates.length];
 }
 
-function createPairStreakNudgeTestCopy(copy) {
-  return { ...copy };
-}
-
 async function createAnnouncementCopy(user, announcement) {
   const data = user.data;
   const fallback = {
@@ -983,7 +979,7 @@ function renderEmailHtml({ copy, ctaUrl, profileUrl, type, user = {} }) {
   const isStarter = type === "starter-reminder";
   const isMilestone = type === "milestone";
   const isFreeze = type === "freeze";
-  const isSocial = type === "friend-streak-danger" || type === "friend-overtook" || type === "pair-streak-nudge" || type === "pair-streak-nudge-test";
+  const isSocial = type === "friend-streak-danger" || type === "friend-overtook" || type === "pair-streak-nudge";
 
   let accent = "#ff9600";
   let accentShadow = "#d87b00";
