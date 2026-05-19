@@ -18,9 +18,11 @@ module.exports = async function handler(request, response) {
     const decodedToken = await verifyFirebaseRequest(request);
     const body = await readJsonBody(request);
     const partnerUid = String(body.partnerUid || "").trim();
+    const testMode = body.testMode === true || body.testMode === "true";
     const result = await sendPairStreakNudge({
       requesterUid: decodedToken.uid,
       partnerUid,
+      testMode,
     });
 
     response.status(200).json({ ok: true, ...result });

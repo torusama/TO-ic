@@ -413,13 +413,18 @@ if (header) {
     if (pairNudgeStatus) pairNudgeStatus.textContent = "AzoTa is drafting the reminder email...";
 
     try {
-      const result = await sendPairStreakNudgeReminder(activeUser, activePairNudgeCandidate.partnerUid);
+      const isTestMode = Boolean(activePairNudgeCandidate.isTestMode);
+      const result = await sendPairStreakNudgeReminder(activeUser, activePairNudgeCandidate.partnerUid, {
+        testMode: isTestMode,
+      });
       if (pairNudgeStatus) {
-        pairNudgeStatus.textContent = result.alreadySent
+        pairNudgeStatus.textContent = result.testMode
+          ? `Test email sent to ${activePairNudgeCandidate.displayName}. Check their inbox.`
+          : result.alreadySent
           ? `Already reminded ${activePairNudgeCandidate.displayName} today.`
           : `Reminder sent to ${activePairNudgeCandidate.displayName}. Check their inbox.`;
       }
-      sendPairNudgeBtn.textContent = result.alreadySent ? "Already sent" : "Sent";
+      sendPairNudgeBtn.textContent = result.testMode ? "Test sent" : result.alreadySent ? "Already sent" : "Sent";
     } catch (error) {
       console.warn("Could not send pair streak nudge:", error);
       sendPairNudgeBtn.disabled = false;
@@ -818,6 +823,7 @@ if (header) {
           streak: Number(pair.streak || 0),
           blockReason,
           isEligible,
+          isTestMode: force,
           isDemo: false,
           isTestCandidate: force && !isEligible,
         });
@@ -842,6 +848,8 @@ if (header) {
     if (pairNudgeBody) {
       pairNudgeBody.textContent = candidate.isDemo
         ? "Demo Partner has not studied today yet. This is only a UI preview because no active pair was found."
+        : candidate.isTestMode
+          ? `${candidate.displayName} is your pair streak partner. This sends a TEST reminder email without changing the real streak state.`
         : candidate.blockReason
           ? `${candidate.displayName} is your pair streak partner. A reminder can only be sent when you have studied today and they have not.`
         : `${candidate.displayName} has not studied today yet. Remind them to finish one lesson so your team streak can increase.`;
@@ -849,6 +857,8 @@ if (header) {
     if (pairNudgeStatus) {
       pairNudgeStatus.textContent = candidate.isDemo
         ? "Demo mode: sending is disabled."
+        : candidate.isTestMode
+          ? "Test mode: sends a [TEST] email and skips real reminder updates."
         : candidate.blockReason
           ? candidate.blockReason
           : candidate.isTestCandidate
@@ -856,8 +866,14 @@ if (header) {
           : "";
     }
     if (sendPairNudgeBtn) {
-      sendPairNudgeBtn.disabled = Boolean(candidate.isDemo || candidate.blockReason);
-      sendPairNudgeBtn.textContent = candidate.isDemo ? "Demo only" : candidate.blockReason ? "Not available" : "Remind partner";
+      sendPairNudgeBtn.disabled = Boolean(candidate.isDemo || (candidate.blockReason && !candidate.isTestMode));
+      sendPairNudgeBtn.textContent = candidate.isDemo
+        ? "Demo only"
+        : candidate.isTestMode
+          ? "Send test email"
+          : candidate.blockReason
+            ? "Not available"
+            : "Remind partner";
     }
     pairNudgeModal.hidden = false;
   }

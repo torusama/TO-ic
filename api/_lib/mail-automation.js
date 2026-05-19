@@ -77,12 +77,13 @@ async function verifyFirebaseRequest(request) {
   }
 }
 
-async function sendPairStreakNudge({ requesterUid, partnerUid }) {
+async function sendPairStreakNudge({ requesterUid, partnerUid, testMode = false }) {
   if (!requesterUid || !partnerUid || requesterUid === partnerUid) {
     throw createHttpError(400, "Invalid pair streak reminder target.");
   }
 
   const db = getDb();
+  const isTestMode = Boolean(testMode);
   const todayKey = getDateKeyInTimeZone(new Date(), TIME_ZONE);
   const pairId = [requesterUid, partnerUid].sort().join("_");
   const pairRef = db.collection("pair_streaks").doc(pairId);
@@ -105,11 +106,11 @@ async function sendPairStreakNudge({ requesterUid, partnerUid }) {
   const requesterStats = requesterData.stats || {};
   const partnerStats = partnerData.stats || {};
 
-  if (requesterStats.lastStreakDate !== todayKey) {
+  if (!isTestMode && requesterStats.lastStreakDate !== todayKey) {
     throw createHttpError(409, "Finish a lesson today before nudging your partner.");
   }
 
-  if (partnerStats.lastStreakDate === todayKey || pairData.lastUpdateDate === todayKey) {
+  if (!isTestMode && (partnerStats.lastStreakDate === todayKey || pairData.lastUpdateDate === todayKey)) {
     throw createHttpError(409, "This pair streak is already safe today.");
   }
 
@@ -123,8 +124,8 @@ async function sendPairStreakNudge({ requesterUid, partnerUid }) {
 
   const nudgeId = toDocId(`${requesterUid}-${partnerUid}-${todayKey}`);
   const nudgeRef = pairRef.collection("nudges").doc(nudgeId);
-  const existingNudge = await nudgeRef.get();
-  if (existingNudge.exists) {
+  const existingNudge = isTestMode ? null : await nudgeRef.get();
+  if (existingNudge?.exists) {
     return {
       sent: false,
       alreadySent: true,
@@ -139,15 +140,35 @@ async function sendPairStreakNudge({ requesterUid, partnerUid }) {
     pairData,
     todayKey,
   });
+  const emailCopy = isTestMode ? createPairStreakNudgeTestCopy(copy) : copy;
   const now = admin.firestore.FieldValue.serverTimestamp();
 
   await sendMail({
     to: partnerData.email,
-    copy,
+    copy: emailCopy,
     ctaUrl: `${getAppBaseUrl()}/pages/hoc-phan.html`,
-    type: "pair-streak-nudge",
+    type: isTestMode ? "pair-streak-nudge-test" : "pair-streak-nudge",
     user: partnerData,
   });
+
+  if (isTestMode) {
+    await pairRef.collection("test_nudges").add({
+      fromUid: requesterUid,
+      toUid: partnerUid,
+      toEmail: partnerData.email,
+      subject: emailCopy.subject,
+      sentAt: now,
+      todayKey,
+    });
+
+    return {
+      sent: true,
+      alreadySent: false,
+      testMode: true,
+      partnerName: cleanDisplayName(partnerData.displayName) || "your partner",
+      todayKey,
+    };
+  }
 
   await Promise.all([
     nudgeRef.set(
@@ -155,7 +176,7 @@ async function sendPairStreakNudge({ requesterUid, partnerUid }) {
         fromUid: requesterUid,
         toUid: partnerUid,
         toEmail: partnerData.email,
-        subject: copy.subject,
+        subject: emailCopy.subject,
         sentAt: now,
       },
       { merge: true }
@@ -746,6 +767,15 @@ function getPairStreakNudgeFallback({ requesterName, firstName, pairStreak, toda
   return templates[hashText(`${requesterName}:${firstName}:${todayKey}`) % templates.length];
 }
 
+function createPairStreakNudgeTestCopy(copy) {
+  return {
+    ...copy,
+    subject: limitText(`[TEST] ${copy.subject}`, 90),
+    preview: limitText(`[TEST] ${copy.preview}`, 140),
+    body: `TEST EMAIL - This is only a pair streak reminder preview.\n\n${copy.body}`,
+  };
+}
+
 async function createAnnouncementCopy(user, announcement) {
   const data = user.data;
   const fallback = {
@@ -958,7 +988,7 @@ function renderEmailHtml({ copy, ctaUrl, profileUrl, type, user = {} }) {
   const isStarter = type === "starter-reminder";
   const isMilestone = type === "milestone";
   const isFreeze = type === "freeze";
-  const isSocial = type === "friend-streak-danger" || type === "friend-overtook" || type === "pair-streak-nudge";
+  const isSocial = type === "friend-streak-danger" || type === "friend-overtook" || type === "pair-streak-nudge" || type === "pair-streak-nudge-test";
 
   let accent = "#ff9600";
   let accentShadow = "#d87b00";

@@ -419,7 +419,7 @@ export async function rejectPairStreak(user, targetUid) {
   }
 }
 
-export async function sendPairStreakNudgeReminder(user, partnerUid) {
+export async function sendPairStreakNudgeReminder(user, partnerUid, options = {}) {
   if (!user || !partnerUid) throw new Error("Missing pair streak reminder target.");
   const token = await user.getIdToken();
   const response = await fetch("/api/pair-streak-nudge", {
@@ -428,7 +428,10 @@ export async function sendPairStreakNudgeReminder(user, partnerUid) {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ partnerUid }),
+    body: JSON.stringify({
+      partnerUid,
+      testMode: Boolean(options.testMode),
+    }),
   });
   const bodyText = await response.text().catch(() => "");
   const data = parseJsonBody(bodyText);
