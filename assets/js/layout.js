@@ -115,7 +115,7 @@ if (header) {
               <h3><strong id="streakModalCount" style="color:var(--orange)">0</strong> day streak</h3>
               <div class="streak-week-grid" id="streakWeekGrid"></div>
               <p class="streak-week-msg" id="streakWeekMsg">Complete a lesson today to extend your streak!</p>
-              <button class="pair-nudge-test-btn" type="button" id="testPairNudgeBtn">Test team nudge</button>
+              <button class="pair-nudge-test-btn" type="button" id="testPairNudgeBtn">Preview reminder</button>
             </div>
 
             <div class="pair-streak-section">
@@ -152,8 +152,7 @@ if (header) {
         <h2 id="pairNudgeTitle">Keep the team streak alive</h2>
         <p id="pairNudgeBody">Your partner has not studied today yet.</p>
         <div class="pair-nudge-actions">
-          <button class="btn btn--secondary" type="button" data-close-pair-nudge>Later</button>
-          <button class="btn btn--primary" type="button" id="sendPairNudgeBtn">Nhắc nhở</button>
+          <button class="btn btn--primary" type="button" id="sendPairNudgeBtn">Remind Partner</button>
         </div>
         <p class="pair-nudge-status" id="pairNudgeStatus" aria-live="polite"></p>
       </article>
@@ -442,7 +441,7 @@ if (header) {
       }
     } finally {
       testPairNudgeBtn.disabled = false;
-      testPairNudgeBtn.textContent = "Test team nudge";
+      testPairNudgeBtn.textContent = "Preview reminder";
     }
   });
 
@@ -846,21 +845,17 @@ if (header) {
     if (pairNudgeBody) {
       pairNudgeBody.textContent = candidate.isDemo
         ? "Demo Partner has not studied today yet. This is only a UI preview because no active pair was found."
-        : candidate.isTestMode
-          ? `${candidate.displayName} is your pair streak partner. This creates a TEST reminder without changing the real streak state.`
-        : candidate.blockReason
+        : candidate.blockReason && !candidate.isTestMode
           ? `${candidate.displayName} is your pair streak partner. A reminder can only be sent when you have studied today and they have not.`
         : `${candidate.displayName} has not studied today yet. Remind them to finish one lesson so your team streak can increase.`;
     }
     if (pairNudgeStatus) {
       pairNudgeStatus.textContent = candidate.isDemo
         ? "Demo mode: sending is disabled."
-        : candidate.isTestMode
-          ? "Test mode: creates a [TEST] reminder and skips real streak updates."
-        : candidate.blockReason
+        : candidate.blockReason && !candidate.isTestMode
           ? candidate.blockReason
           : candidate.isTestCandidate
-            ? "Test mode: the API will still check real send conditions."
+            ? ""
           : "";
     }
     if (sendPairNudgeBtn) {
@@ -868,10 +863,10 @@ if (header) {
       sendPairNudgeBtn.textContent = candidate.isDemo
         ? "Demo only"
         : candidate.isTestMode
-          ? "Nhắc thử"
+          ? "Remind Partner"
           : candidate.blockReason
             ? "Not available"
-            : "Nhắc nhở";
+            : "Remind Partner";
     }
     pairNudgeModal.hidden = false;
   }
@@ -882,20 +877,18 @@ if (header) {
 
     if (sendPairNudgeBtn) {
       sendPairNudgeBtn.disabled = true;
-      sendPairNudgeBtn.textContent = "Đã nhắc";
+      sendPairNudgeBtn.textContent = "Reminded";
     }
     if (pairNudgeBody) {
-      pairNudgeBody.textContent = candidate.isTestMode
-        ? `AzoTa đã nhận lời nhắc thử cho ${candidate.displayName}.`
-        : `AzoTa đã nhận lời nhắc cho ${candidate.displayName}.`;
+      pairNudgeBody.textContent = `AzoTa has queued a reminder for ${candidate.displayName}.`;
     }
     if (pairNudgeStatus) {
-      pairNudgeStatus.textContent = "Bạn cứ học tiếp, phần còn lại để AzoTa lo.";
+      pairNudgeStatus.textContent = "You are all set. AzoTa will handle the rest.";
     }
 
     pairNudgeCloseTimer = setTimeout(() => {
       closePairNudgeModal();
-    }, 950);
+    }, 1500);
   }
 
   function resetPairNudgeFeedback() {

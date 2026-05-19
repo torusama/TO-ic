@@ -2612,9 +2612,10 @@ body.modal-open {
   animation: pairNudgeCheckPop 0.48s cubic-bezier(0.2, 1.4, 0.32, 1) forwards;
 }
 
-.pair-nudge-panel.is-reminded .pair-nudge-actions .btn--secondary {
-  opacity: 0.55;
-  pointer-events: none;
+.pair-nudge-panel.is-reminded .pair-nudge-actions .btn--primary {
+  background: var(--green);
+  box-shadow: 0 0 0 var(--green-shadow);
+  transform: translateY(4px);
 }
 
 .pair-nudge-panel h2 {
@@ -2633,12 +2634,24 @@ body.modal-open {
 
 .pair-nudge-actions {
   display: flex;
+  justify-content: center;
   gap: 10px;
   margin-top: 22px;
 }
 
 .pair-nudge-actions .btn {
-  flex: 1;
+  flex: 0 1 230px;
+  width: min(100%, 230px);
+}
+
+.pair-nudge-actions .btn--primary {
+  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+}
+
+.pair-nudge-actions .btn--primary:active {
+  box-shadow: 0 0 0 var(--green-shadow);
+  filter: brightness(0.98);
+  transform: translateY(4px);
 }
 
 .pair-nudge-status {

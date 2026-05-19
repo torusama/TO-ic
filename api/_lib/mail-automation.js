@@ -768,12 +768,7 @@ function getPairStreakNudgeFallback({ requesterName, firstName, pairStreak, toda
 }
 
 function createPairStreakNudgeTestCopy(copy) {
-  return {
-    ...copy,
-    subject: limitText(`[TEST] ${copy.subject}`, 90),
-    preview: limitText(`[TEST] ${copy.preview}`, 140),
-    body: `TEST EMAIL - This is only a pair streak reminder preview.\n\n${copy.body}`,
-  };
+  return { ...copy };
 }
 
 async function createAnnouncementCopy(user, announcement) {
