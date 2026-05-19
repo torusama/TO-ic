@@ -246,6 +246,19 @@
               <input id="avatarUploadInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
             </label>
           </div>
+          <div id="avatarCropPanel" class="avatar-crop-panel" hidden>
+            <div id="avatarCropStage" class="avatar-crop-stage" role="application" aria-label="Avatar crop area">
+              <img id="avatarCropImage" src="" alt="" draggable="false" />
+              <span class="avatar-crop-ring" aria-hidden="true"></span>
+            </div>
+            <div class="avatar-crop-controls">
+              <label class="avatar-zoom-control">
+                <span>Zoom</span>
+                <input id="avatarZoomInput" type="range" min="1" max="3" step="0.01" value="1" />
+              </label>
+              <button id="avatarApplyCropBtn" class="btn btn--primary" type="button">Apply crop</button>
+            </div>
+          </div>
           <label class="profile-field">
             <span>Display name</span>
             <input id="displayNameInput" type="text" maxlength="48" placeholder="Your display name" />

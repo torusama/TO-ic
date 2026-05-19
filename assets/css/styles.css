@@ -3101,6 +3101,120 @@ body.modal-open {
   cursor: pointer;
 }
 
+.avatar-upload-btn:active {
+  transform: translateY(2px);
+}
+
+.avatar-crop-panel {
+  display: grid;
+  gap: 16px;
+  justify-items: center;
+  margin-top: 4px;
+  border: 2px solid var(--border-color);
+  border-radius: 14px;
+  padding: 16px;
+  background: #fff;
+}
+
+.avatar-crop-panel[hidden] {
+  display: none;
+}
+
+.avatar-crop-stage {
+  position: relative;
+  width: min(100%, 260px);
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 16px;
+  background:
+    linear-gradient(45deg, rgba(229, 229, 229, 0.55) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(229, 229, 229, 0.55) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(229, 229, 229, 0.55) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(229, 229, 229, 0.55) 75%);
+  background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+  background-size: 24px 24px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.avatar-crop-stage:active {
+  cursor: grabbing;
+}
+
+.avatar-crop-stage img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  max-width: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  transform-origin: center;
+  pointer-events: none;
+}
+
+.avatar-crop-stage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: rgba(16, 15, 62, 0.42);
+  -webkit-mask: radial-gradient(circle at center, transparent 0 46%, #000 47%);
+  mask: radial-gradient(circle at center, transparent 0 46%, #000 47%);
+  pointer-events: none;
+}
+
+.avatar-crop-ring {
+  position: absolute;
+  inset: 8%;
+  z-index: 3;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(16, 15, 62, 0.18), 0 10px 22px rgba(16, 15, 62, 0.16);
+  pointer-events: none;
+}
+
+.avatar-crop-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  width: 100%;
+}
+
+.avatar-zoom-control {
+  display: grid;
+  gap: 8px;
+}
+
+.avatar-zoom-control span {
+  color: var(--gray-light);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.avatar-zoom-control input {
+  width: 100%;
+  accent-color: var(--green);
+}
+
+.avatar-crop-controls .btn {
+  min-height: 42px;
+  padding-inline: 16px;
+}
+
+@media (max-width: 520px) {
+  .avatar-crop-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .avatar-crop-controls .btn {
+    width: 100%;
+  }
+}
+
 .profile-form-status {
   min-height: 20px;
   margin: 0;

@@ -48,6 +48,11 @@ const editProfileForm = document.querySelector("#editProfileForm");
 const displayNameInput = document.querySelector("#displayNameInput");
 const avatarUploadInput = document.querySelector("#avatarUploadInput");
 const editAvatarPreview = document.querySelector("#editAvatarPreview");
+const avatarCropPanel = document.querySelector("#avatarCropPanel");
+const avatarCropStage = document.querySelector("#avatarCropStage");
+const avatarCropImage = document.querySelector("#avatarCropImage");
+const avatarZoomInput = document.querySelector("#avatarZoomInput");
+const avatarApplyCropBtn = document.querySelector("#avatarApplyCropBtn");
 const editProfileStatus = document.querySelector("#editProfileStatus");
 const findFriendsBtn = document.querySelector("#findFriendsBtn");
 const friendModal = document.querySelector("#friendModal");
@@ -61,6 +66,10 @@ const connectionsModal = document.querySelector("#connectionsModal");
 const connectionModalTitle = document.querySelector("#connectionModalTitle");
 const connectionList = document.querySelector("#connectionList");
 const connectionTabs = document.querySelector("#connectionTabs");
+const maxAvatarUploadBytes = 5 * 1024 * 1024;
+const avatarOutputSize = 240;
+const maxAvatarDataUrlLength = 650000;
+const acceptedAvatarTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 let activeUser = null;
 let activeProfile = normalizeProfile(null, {});
@@ -73,6 +82,7 @@ let activeFollowers = [];
 let activeFollowingProfiles = [];
 let friendProfiles = [];
 let pendingAvatarDataUrl = "";
+let avatarCropState = null;
 let unsubscribers = [];
 let courseDataVersion = 0;
 let friendSearchTimer = 0;
@@ -358,24 +368,75 @@ avatarUploadInput?.addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
 
-  if (!file.type.startsWith("image/")) {
-    setEditProfileStatus("Choose an image file for the avatar.");
+  if (!acceptedAvatarTypes.has(file.type)) {
+    setEditProfileStatus("Choose a JPG, PNG, or WebP image.");
+    event.target.value = "";
     return;
   }
 
-  setEditProfileSaving(true, "Preparing avatar...");
+  if (file.size > maxAvatarUploadBytes) {
+    setEditProfileStatus("Avatar image must be 5 MB or smaller.");
+    event.target.value = "";
+    return;
+  }
+
+  setEditProfileStatus("Position your avatar, then apply the crop.");
   try {
-    pendingAvatarDataUrl = await resizeAvatar(file);
-    if (editAvatarPreview) editAvatarPreview.src = pendingAvatarDataUrl;
-    setEditProfileSaving(false, "Avatar ready. Hit save to keep it.");
+    await openAvatarCropper(file);
   } catch (error) {
     console.warn("Could not prepare avatar:", error);
     pendingAvatarDataUrl = activeProfile.photoURL || "";
     if (editAvatarPreview) editAvatarPreview.src = getAvatarUrl(activeProfile);
-    setEditProfileSaving(false, "Could not use that image. Try a smaller one.");
+    closeAvatarCropper();
+    setEditProfileStatus("Could not use that image. Try another one under 5 MB.");
   } finally {
     event.target.value = "";
   }
+});
+
+avatarZoomInput?.addEventListener("input", () => {
+  if (!avatarCropState) return;
+  avatarCropState.scale = Number(avatarZoomInput.value || avatarCropState.scale);
+  clampAvatarCrop();
+  renderAvatarCrop();
+});
+
+avatarApplyCropBtn?.addEventListener("click", () => {
+  if (!avatarCropState) return;
+  try {
+    pendingAvatarDataUrl = createCroppedAvatar();
+    if (editAvatarPreview) editAvatarPreview.src = pendingAvatarDataUrl;
+    closeAvatarCropper();
+    setEditProfileStatus("Avatar ready. Save to keep it.");
+  } catch (error) {
+    console.warn("Could not crop avatar:", error);
+    setEditProfileStatus("Could not crop that image. Try another one.");
+  }
+});
+
+avatarCropStage?.addEventListener("pointerdown", (event) => {
+  if (!avatarCropState) return;
+  event.preventDefault();
+  avatarCropStage.setPointerCapture?.(event.pointerId);
+  avatarCropState.dragging = true;
+  avatarCropState.dragStartX = event.clientX;
+  avatarCropState.dragStartY = event.clientY;
+  avatarCropState.startX = avatarCropState.x;
+  avatarCropState.startY = avatarCropState.y;
+});
+
+avatarCropStage?.addEventListener("pointermove", (event) => {
+  if (!avatarCropState?.dragging) return;
+  avatarCropState.x = avatarCropState.startX + event.clientX - avatarCropState.dragStartX;
+  avatarCropState.y = avatarCropState.startY + event.clientY - avatarCropState.dragStartY;
+  clampAvatarCrop();
+  renderAvatarCrop();
+});
+
+["pointerup", "pointercancel", "lostpointercapture"].forEach((eventName) => {
+  avatarCropStage?.addEventListener(eventName, () => {
+    if (avatarCropState) avatarCropState.dragging = false;
+  });
 });
 
 editProfileForm?.addEventListener("submit", async (event) => {
@@ -386,6 +447,12 @@ editProfileForm?.addEventListener("submit", async (event) => {
   if (!displayName) {
     setEditProfileStatus("Display name cannot be empty.");
     displayNameInput?.focus();
+    return;
+  }
+
+  if (avatarCropState) {
+    setEditProfileStatus("Apply the avatar crop before saving.");
+    avatarApplyCropBtn?.focus();
     return;
   }
 
@@ -422,6 +489,7 @@ connectionList?.addEventListener("click", handleFriendAction);
 function openEditProfileModal() {
   if (!editProfileModal || !activeUser) return;
 
+  closeAvatarCropper();
   pendingAvatarDataUrl = activeProfile.photoURL || "";
   if (displayNameInput) displayNameInput.value = activeProfile.displayName || "";
   if (editAvatarPreview) editAvatarPreview.src = getAvatarUrl(activeProfile);
@@ -434,6 +502,7 @@ function openEditProfileModal() {
 function closeEditProfileModal() {
   if (!editProfileModal || editProfileModal.hidden) return;
   setModalOpen(editProfileModal, false);
+  closeAvatarCropper();
   pendingAvatarDataUrl = "";
   setEditProfileStatus("");
 }
@@ -663,41 +732,46 @@ function getAvatarUrl(profile) {
   return profile?.photoURL || "https://www.gravatar.com/avatar/?d=mp";
 }
 
-function resizeAvatar(file) {
+function openAvatarCropper(file) {
   return new Promise((resolve, reject) => {
+    closeAvatarCropper();
     const imageUrl = URL.createObjectURL(file);
     const image = new Image();
     image.onload = () => {
-      URL.revokeObjectURL(imageUrl);
-      const canvas = document.createElement("canvas");
-      const size = 120;
-      const side = Math.min(image.naturalWidth || image.width, image.naturalHeight || image.height);
-      const sourceX = ((image.naturalWidth || image.width) - side) / 2;
-      const sourceY = ((image.naturalHeight || image.height) - side) / 2;
-      canvas.width = size;
-      canvas.height = size;
-      const context = canvas.getContext("2d");
-      if (!context) {
-        reject(new Error("Could not create avatar canvas"));
-        return;
-      }
-      context.fillStyle = "#ffffff";
-      context.fillRect(0, 0, size, size);
-      context.drawImage(image, sourceX, sourceY, side, side, 0, 0, size, size);
-
-      let quality = 0.82;
-      let dataUrl = canvas.toDataURL("image/jpeg", quality);
-      while (dataUrl.length > 650000 && quality > 0.42) {
-        quality -= 0.08;
-        dataUrl = canvas.toDataURL("image/jpeg", quality);
-      }
-
-      if (dataUrl.length > 650000) {
-        reject(new Error("Avatar data URL is too large"));
+      if (!avatarCropPanel || !avatarCropStage || !avatarCropImage || !avatarZoomInput) {
+        URL.revokeObjectURL(imageUrl);
+        reject(new Error("Avatar cropper is unavailable"));
         return;
       }
 
-      resolve(dataUrl);
+      avatarCropPanel.hidden = false;
+      avatarCropImage.src = imageUrl;
+      window.requestAnimationFrame(() => {
+        const stageSize = avatarCropStage.getBoundingClientRect().width || 260;
+        const cropSize = stageSize * 0.84;
+        const naturalWidth = image.naturalWidth || image.width;
+        const naturalHeight = image.naturalHeight || image.height;
+        const baseScale = Math.max(cropSize / naturalWidth, cropSize / naturalHeight);
+
+        avatarCropState = {
+          image,
+          objectUrl: imageUrl,
+          naturalWidth,
+          naturalHeight,
+          stageSize,
+          cropSize,
+          baseScale,
+          scale: 1,
+          x: 0,
+          y: 0,
+          dragging: false,
+        };
+
+        avatarZoomInput.value = "1";
+        clampAvatarCrop();
+        renderAvatarCrop();
+        resolve();
+      });
     };
     image.onerror = () => {
       URL.revokeObjectURL(imageUrl);
@@ -705,6 +779,78 @@ function resizeAvatar(file) {
     };
     image.src = imageUrl;
   });
+}
+
+function closeAvatarCropper() {
+  if (avatarCropState?.objectUrl) URL.revokeObjectURL(avatarCropState.objectUrl);
+  avatarCropState = null;
+  if (avatarCropPanel) avatarCropPanel.hidden = true;
+  if (avatarCropImage) avatarCropImage.src = "";
+  if (avatarZoomInput) avatarZoomInput.value = "1";
+}
+
+function renderAvatarCrop() {
+  if (!avatarCropState || !avatarCropImage) return;
+  const width = avatarCropState.naturalWidth * avatarCropState.baseScale * avatarCropState.scale;
+  const height = avatarCropState.naturalHeight * avatarCropState.baseScale * avatarCropState.scale;
+  avatarCropImage.style.width = `${width}px`;
+  avatarCropImage.style.height = `${height}px`;
+  avatarCropImage.style.transform = `translate(-50%, -50%) translate(${avatarCropState.x}px, ${avatarCropState.y}px)`;
+}
+
+function clampAvatarCrop() {
+  if (!avatarCropState) return;
+  const width = avatarCropState.naturalWidth * avatarCropState.baseScale * avatarCropState.scale;
+  const height = avatarCropState.naturalHeight * avatarCropState.baseScale * avatarCropState.scale;
+  const maxX = Math.max(0, (width - avatarCropState.cropSize) / 2);
+  const maxY = Math.max(0, (height - avatarCropState.cropSize) / 2);
+  avatarCropState.x = clamp(avatarCropState.x, -maxX, maxX);
+  avatarCropState.y = clamp(avatarCropState.y, -maxY, maxY);
+}
+
+function createCroppedAvatar() {
+  if (!avatarCropState) throw new Error("No avatar crop selected");
+  const canvas = document.createElement("canvas");
+  canvas.width = avatarOutputSize;
+  canvas.height = avatarOutputSize;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Could not create avatar canvas");
+
+  const displayedWidth = avatarCropState.naturalWidth * avatarCropState.baseScale * avatarCropState.scale;
+  const displayedHeight = avatarCropState.naturalHeight * avatarCropState.baseScale * avatarCropState.scale;
+  const imageLeft = avatarCropState.stageSize / 2 - displayedWidth / 2 + avatarCropState.x;
+  const imageTop = avatarCropState.stageSize / 2 - displayedHeight / 2 + avatarCropState.y;
+  const cropLeft = (avatarCropState.stageSize - avatarCropState.cropSize) / 2;
+  const cropTop = (avatarCropState.stageSize - avatarCropState.cropSize) / 2;
+  const sourceX = ((cropLeft - imageLeft) / displayedWidth) * avatarCropState.naturalWidth;
+  const sourceY = ((cropTop - imageTop) / displayedHeight) * avatarCropState.naturalHeight;
+  const sourceSize = (avatarCropState.cropSize / displayedWidth) * avatarCropState.naturalWidth;
+
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, avatarOutputSize, avatarOutputSize);
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(
+    avatarCropState.image,
+    sourceX,
+    sourceY,
+    sourceSize,
+    sourceSize,
+    0,
+    0,
+    avatarOutputSize,
+    avatarOutputSize
+  );
+
+  let quality = 0.82;
+  let dataUrl = canvas.toDataURL("image/jpeg", quality);
+  while (dataUrl.length > maxAvatarDataUrlLength && quality > 0.42) {
+    quality -= 0.08;
+    dataUrl = canvas.toDataURL("image/jpeg", quality);
+  }
+
+  if (dataUrl.length > maxAvatarDataUrlLength) throw new Error("Avatar data URL is too large");
+  return dataUrl;
 }
 
 function renderProfile() {
