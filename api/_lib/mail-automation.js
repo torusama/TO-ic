@@ -77,13 +77,12 @@ async function verifyFirebaseRequest(request) {
   }
 }
 
-async function sendPairStreakNudge({ requesterUid, partnerUid, testMode = false }) {
+async function sendPairStreakNudge({ requesterUid, partnerUid }) {
   if (!requesterUid || !partnerUid || requesterUid === partnerUid) {
     throw createHttpError(400, "Invalid pair streak reminder target.");
   }
 
   const db = getDb();
-  const isTestMode = Boolean(testMode);
   const todayKey = getDateKeyInTimeZone(new Date(), TIME_ZONE);
   const pairId = [requesterUid, partnerUid].sort().join("_");
   const pairRef = db.collection("pair_streaks").doc(pairId);
@@ -106,11 +105,11 @@ async function sendPairStreakNudge({ requesterUid, partnerUid, testMode = false 
   const requesterStats = requesterData.stats || {};
   const partnerStats = partnerData.stats || {};
 
-  if (!isTestMode && requesterStats.lastStreakDate !== todayKey) {
+  if (requesterStats.lastStreakDate !== todayKey) {
     throw createHttpError(409, "Finish a lesson today before nudging your partner.");
   }
 
-  if (!isTestMode && (partnerStats.lastStreakDate === todayKey || pairData.lastUpdateDate === todayKey)) {
+  if (partnerStats.lastStreakDate === todayKey || pairData.lastUpdateDate === todayKey) {
     throw createHttpError(409, "This pair streak is already safe today.");
   }
 
@@ -124,7 +123,7 @@ async function sendPairStreakNudge({ requesterUid, partnerUid, testMode = false 
 
   const nudgeId = toDocId(`${requesterUid}-${partnerUid}-${todayKey}`);
   const nudgeRef = pairRef.collection("nudges").doc(nudgeId);
-  const existingNudge = isTestMode ? null : await nudgeRef.get();
+  const existingNudge = await nudgeRef.get();
   if (existingNudge?.exists) {
     return {
       sent: false,
@@ -140,35 +139,15 @@ async function sendPairStreakNudge({ requesterUid, partnerUid, testMode = false 
     pairData,
     todayKey,
   });
-  const emailCopy = copy;
   const now = admin.firestore.FieldValue.serverTimestamp();
 
   await sendMail({
     to: partnerData.email,
-    copy: emailCopy,
+    copy,
     ctaUrl: `${getAppBaseUrl()}/pages/hoc-phan.html`,
     type: "pair-streak-nudge",
     user: partnerData,
   });
-
-  if (isTestMode) {
-    await pairRef.collection("test_nudges").add({
-      fromUid: requesterUid,
-      toUid: partnerUid,
-      toEmail: partnerData.email,
-      subject: emailCopy.subject,
-      sentAt: now,
-      todayKey,
-    });
-
-    return {
-      sent: true,
-      alreadySent: false,
-      testMode: true,
-      partnerName: cleanDisplayName(partnerData.displayName) || "your partner",
-      todayKey,
-    };
-  }
 
   await Promise.all([
     nudgeRef.set(
@@ -176,7 +155,7 @@ async function sendPairStreakNudge({ requesterUid, partnerUid, testMode = false 
         fromUid: requesterUid,
         toUid: partnerUid,
         toEmail: partnerData.email,
-        subject: emailCopy.subject,
+        subject: copy.subject,
         sentAt: now,
       },
       { merge: true }

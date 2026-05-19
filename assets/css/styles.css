@@ -2659,25 +2659,6 @@ body.modal-open {
   font-size: 13px;
 }
 
-.pair-nudge-test-btn {
-  margin: 4px auto 0;
-  border: 0;
-  background: transparent;
-  color: rgba(168, 85, 247, 0.72);
-  font-size: 11px;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-}
-
-.pair-nudge-test-btn:hover {
-  color: #a855f7;
-}
-
-.pair-nudge-test-btn:disabled {
-  opacity: 0.55;
-}
-
 @keyframes pairNudgeCheckPop {
   0% {
     opacity: 0;

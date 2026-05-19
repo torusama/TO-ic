@@ -431,7 +431,6 @@ export async function sendPairStreakNudgeReminder(user, partnerUid, options = {}
     },
     body: JSON.stringify({
       partnerUid,
-      testMode: Boolean(options.testMode),
     }),
   });
   const bodyText = await response.text().catch(() => "");

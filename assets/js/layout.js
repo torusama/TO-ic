@@ -115,7 +115,6 @@ if (header) {
               <h3><strong id="streakModalCount" style="color:var(--orange)">0</strong> day streak</h3>
               <div class="streak-week-grid" id="streakWeekGrid"></div>
               <p class="streak-week-msg" id="streakWeekMsg">Complete a lesson today to extend your streak!</p>
-              <button class="pair-nudge-test-btn" type="button" id="testPairNudgeBtn">Preview reminder</button>
             </div>
 
             <div class="pair-streak-section">
@@ -375,7 +374,6 @@ if (header) {
   const pairNudgeBody = document.querySelector("#pairNudgeBody");
   const pairNudgeAvatar = document.querySelector("#pairNudgeAvatar");
   const pairNudgeStatus = document.querySelector("#pairNudgeStatus");
-  const testPairNudgeBtn = document.querySelector("#testPairNudgeBtn");
 
   const viewMain = streakModal?.querySelector("#streakViewMain");
   const viewPair = streakModal?.querySelector("#streakViewPair");
@@ -417,32 +415,10 @@ if (header) {
     showPairNudgeQueued(candidate);
 
     sendPairStreakNudgeReminder(user, candidate.partnerUid, {
-      testMode: Boolean(candidate.isTestMode),
       keepalive: true,
     }).catch((error) => {
       console.warn("Could not send pair streak nudge after UI confirmation:", error);
     });
-  });
-
-  testPairNudgeBtn?.addEventListener("click", async () => {
-    testPairNudgeBtn.disabled = true;
-    testPairNudgeBtn.textContent = "Checking...";
-    try {
-      const opened = await maybeOpenPairNudgeModal({ force: true });
-      if (!opened) {
-        openPairNudgeModal({
-          key: `test__${Date.now()}`,
-          partnerUid: "",
-          displayName: "Demo Partner",
-          photoURL: "",
-          streak: 0,
-          isDemo: true,
-        });
-      }
-    } finally {
-      testPairNudgeBtn.disabled = false;
-      testPairNudgeBtn.textContent = "Preview reminder";
-    }
   });
 
   if (backBtn) {
@@ -783,11 +759,11 @@ if (header) {
     }
   }
 
-  async function maybeOpenPairNudgeModal({ force = false } = {}) {
+  async function maybeOpenPairNudgeModal() {
     if (!activeUser || !cachedProfile || !pairNudgeModal) return;
 
     const todayStr = getDateKey(new Date());
-    if (!force && cachedProfile.stats?.lastStreakDate !== todayStr) return false;
+    if (cachedProfile.stats?.lastStreakDate !== todayStr) return false;
 
     try {
       const pairStreaks = await getPairStreaks(activeUser.uid);
@@ -808,8 +784,8 @@ if (header) {
         });
         const isEligible = !blockReason;
 
-        if (!force && !isEligible) continue;
-        if (!force && shownPairNudgeKeys.has(key)) continue;
+        if (!isEligible) continue;
+        if (shownPairNudgeKeys.has(key)) continue;
 
         candidates.push({
           key,
@@ -819,16 +795,13 @@ if (header) {
           streak: Number(pair.streak || 0),
           blockReason,
           isEligible,
-          isTestMode: force,
-          isDemo: false,
-          isTestCandidate: force && !isEligible,
         });
       }
 
       if (!candidates.length) return false;
 
-      candidates.sort((a, b) => Number(b.isEligible) - Number(a.isEligible) || b.streak - a.streak);
-      openPairNudgeModal(candidates[0], { force });
+      candidates.sort((a, b) => b.streak - a.streak);
+      openPairNudgeModal(candidates[0]);
       return true;
     } catch (error) {
       console.warn("Could not check pair streak nudge:", error);
@@ -836,37 +809,23 @@ if (header) {
     }
   }
 
-  function openPairNudgeModal(candidate, { force = false } = {}) {
+  function openPairNudgeModal(candidate) {
     resetPairNudgeFeedback();
     activePairNudgeCandidate = candidate;
-    if (!force) shownPairNudgeKeys.add(candidate.key);
+    shownPairNudgeKeys.add(candidate.key);
 
     if (pairNudgeAvatar) pairNudgeAvatar.src = candidate.photoURL || "https://www.gravatar.com/avatar/?d=mp";
     if (pairNudgeBody) {
-      pairNudgeBody.textContent = candidate.isDemo
-        ? "Demo Partner has not studied today yet. This is only a UI preview because no active pair was found."
-        : candidate.blockReason && !candidate.isTestMode
-          ? `${candidate.displayName} is your pair streak partner. A reminder can only be sent when you have studied today and they have not.`
+      pairNudgeBody.textContent = candidate.blockReason
+        ? `${candidate.displayName} is your pair streak partner. A reminder can only be sent when you have studied today and they have not.`
         : `${candidate.displayName} has not studied today yet. Remind them to finish one lesson so your team streak can increase.`;
     }
     if (pairNudgeStatus) {
-      pairNudgeStatus.textContent = candidate.isDemo
-        ? "Demo mode: sending is disabled."
-        : candidate.blockReason && !candidate.isTestMode
-          ? candidate.blockReason
-          : candidate.isTestCandidate
-            ? ""
-          : "";
+      pairNudgeStatus.textContent = candidate.blockReason ? candidate.blockReason : "";
     }
     if (sendPairNudgeBtn) {
-      sendPairNudgeBtn.disabled = Boolean(candidate.isDemo || (candidate.blockReason && !candidate.isTestMode));
-      sendPairNudgeBtn.textContent = candidate.isDemo
-        ? "Demo only"
-        : candidate.isTestMode
-          ? "Remind Partner"
-          : candidate.blockReason
-            ? "Not available"
-            : "Remind Partner";
+      sendPairNudgeBtn.disabled = Boolean(candidate.blockReason);
+      sendPairNudgeBtn.textContent = candidate.blockReason ? "Not available" : "Remind Partner";
     }
     pairNudgeModal.hidden = false;
   }
