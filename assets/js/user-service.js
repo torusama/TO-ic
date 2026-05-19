@@ -770,8 +770,7 @@ function normalizeConnectionProfile(id, data = {}, type = "following") {
 function normalizePairStreakSnapshot(snapshot, uid) {
   const nowTime = new Date().getTime();
   return snapshot.docs
-    .map((docSnap) => normalizePairStreakDoc(docSnap, uid, nowTime))
-    .filter((pair) => pair.status === "pending" || !pair.isBroken);
+    .map((docSnap) => normalizePairStreakDoc(docSnap, uid, nowTime));
 }
 
 function normalizePairStreakDoc(docSnap, uid, nowTime = new Date().getTime()) {
@@ -781,15 +780,19 @@ function normalizePairStreakDoc(docSnap, uid, nowTime = new Date().getTime()) {
   const lastTime = lastUpdateStr ? new Date(lastUpdateStr).getTime() : nowTime;
   const diffDays = lastUpdateStr ? Math.floor((nowTime - lastTime) / 86400000) : 0;
   const status = data.status || "active";
+  const streak = Number(data.streak || 0);
+  const isExpired = status === "active" && streak > 0 && diffDays >= 3;
+  const normalizedStatus = isExpired ? "broken" : status;
 
   return {
     id: docSnap.id,
     partnerUid: uids.find((item) => item !== uid) || "",
-    streak: Number(data.streak || 0),
+    streak: normalizedStatus === "broken" ? 0 : streak,
     lastUpdateDate: lastUpdateStr,
-    isBroken: status === "active" && diffDays > 3,
-    status,
+    isBroken: normalizedStatus === "broken",
+    status: normalizedStatus,
     invitedBy: data.invitedBy || "",
+    brokenFromStreak: Number(data.brokenFromStreak || streak || 0),
   };
 }
 
@@ -976,6 +979,22 @@ export async function updateActivePairStreaks(uid) {
         const partnerUid = uids.find((item) => item !== uid);
         if (!partnerUid || (data.status || "active") !== "active") return;
 
+        if (shouldBreakPairStreak(data, todayStr)) {
+          transaction.set(
+            pairRef,
+            {
+              status: "broken",
+              streak: 0,
+              brokenDate: todayStr,
+              brokenFromStreak: Number(data.streak || 0),
+              brokenReason: "three_days_without_pair_progress",
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+          return;
+        }
+
         if (data.lastUpdateDate === todayStr) return;
 
         const partnerSnap = await transaction.get(doc(db, "publicProfiles", partnerUid));
@@ -1003,20 +1022,24 @@ export async function updateActivePairStreaks(uid) {
           return;
         }
 
-        const lastPairDate = data.lastUpdateDate || "";
-        const lastTime = lastPairDate ? new Date(lastPairDate).getTime() : new Date().getTime();
-        const nowTime = new Date().getTime();
-        const diffDays = lastPairDate ? Math.floor((nowTime - lastTime) / (1000 * 60 * 60 * 24)) : 0;
-
-        if (diffDays > 3) {
-          transaction.delete(pairRef);
-          return;
-        }
-
         transaction.set(pairRef, update, { merge: true });
       });
     }
   } catch (err) {
     console.warn("Failed to update active pair streaks:", err);
   }
+}
+
+function shouldBreakPairStreak(data = {}, todayStr) {
+  const streak = Number(data.streak || 0);
+  if (streak <= 0 || !data.lastUpdateDate) return false;
+  const diffDays = getDaysBetweenDateKeys(data.lastUpdateDate, todayStr);
+  return Number.isFinite(diffDays) && diffDays >= 3;
+}
+
+function getDaysBetweenDateKeys(fromKey, toKey) {
+  const fromDate = parseDateKey(fromKey);
+  const toDate = parseDateKey(toKey);
+  if (!fromDate || !toDate) return Number.NaN;
+  return Math.round((toDate.getTime() - fromDate.getTime()) / 86400000);
 }

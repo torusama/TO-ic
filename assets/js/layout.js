@@ -249,10 +249,7 @@ if (header) {
         await deleteNotification(activeUser.uid, notifId);
       } else {
         await markNotificationRead(activeUser.uid, notifId);
-        if (notifData && (notifData.type === "streak_invite" || notifData.type === "streak_accept")) {
-          closePopover();
-          openStreakModal(false, true, notifData.type === "streak_invite" ? "invites" : "friends");
-        }
+        openNotificationTarget(notifData);
       }
     } catch (error) {
       console.warn("Could not update notification:", error);
@@ -264,8 +261,10 @@ if (header) {
     const item = event.target.closest("[data-notification-id]");
     if (!item) return;
     event.preventDefault();
+    const notifData = notifications.find((n) => n.id === item.dataset.notificationId);
     try {
       await markNotificationRead(activeUser.uid, item.dataset.notificationId);
+      openNotificationTarget(notifData);
     } catch (error) {
       console.warn("Could not mark notification as read:", error);
     }
@@ -297,25 +296,26 @@ if (header) {
     list.innerHTML = notifications.length
       ? notifications
           .map(
-            (item) => {
-              let actionHtml = "";
-              if (item.type === "streak_invite" && item.unread) {
-                actionHtml = `<button class="btn btn--primary" style="margin-top: 8px; font-size: 11px; padding: 4px 10px; height: auto; text-transform: uppercase;">View Invite</button>`;
-              }
-              return `
+            (item) => `
                 <article class="notification-popover__item ${item.unread ? "is-unread" : ""}" data-notification-id="${item.id}" tabindex="0">
                   <div style="flex-grow:1; display:flex; flex-direction:column; align-items:flex-start;">
                     <strong>${escapeHtml(item.title)}</strong>
                     <span style="margin-bottom:2px;">${escapeHtml(item.body)}</span>
-                    ${actionHtml}
                   </div>
                   <button class="notification-popover__delete" type="button" data-delete-notification aria-label="Delete notification">&times;</button>
                 </article>
-              `;
-            }
+              `
           )
           .join("")
       : `<div class="notification-popover__empty">No notifications yet.</div>`;
+  }
+
+  function openNotificationTarget(notifData) {
+    if (!notifData) return;
+    if (notifData.type === "streak_invite" || notifData.type === "streak_accept" || notifData.type === "pair_streak_broken") {
+      closePopover();
+      openStreakModal(false, true, notifData.type === "streak_invite" ? "invites" : "friends");
+    }
   }
 
   function openPopover() {
@@ -370,16 +370,19 @@ if (header) {
       return;
     }
 
-    const activePairs = pairStreaks.filter((pair) => pair.status === "active");
-    if (!activePairs.length) {
+    const activePairs = pairStreaks.filter((pair) => pair.status === "active" && !pair.isBroken);
+    const brokenPairs = pairStreaks.filter((pair) => pair.status === "broken" || pair.isBroken);
+    if (!activePairs.length && !brokenPairs.length) {
       headerPairStreak.style.display = "none";
       return;
     }
 
-    const highestPair = activePairs.reduce((prev, current) => (prev.streak > current.streak ? prev : current));
+    const highestPair = activePairs.length
+      ? activePairs.reduce((prev, current) => (prev.streak > current.streak ? prev : current))
+      : { streak: 0, isBroken: true, status: "broken" };
     headerPairStreak.style.display = "flex";
-    pairStreakVal.textContent = highestPair.streak;
-    headerPairStreak.classList.toggle("is-broken", highestPair.streak === 0);
+    pairStreakVal.textContent = highestPair.isBroken || highestPair.status === "broken" ? "0" : highestPair.streak;
+    headerPairStreak.classList.toggle("is-broken", highestPair.isBroken || highestPair.status === "broken" || highestPair.streak === 0);
   }
 
   const streakModal = document.querySelector("#streakModal");
@@ -678,6 +681,16 @@ if (header) {
                       } else {
                         actionButtonHtml = `<span style="font-size: 12px; font-weight: 800; color: #a855f7; font-style: italic;">Invited you</span>`;
                       }
+                    } else if (activePair.status === "broken" || activePair.isBroken) {
+                      actionButtonHtml = `
+                        <div class="pair-streak-badge pair-streak-badge--broken" aria-label="Pair streak ended">
+                          <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 16px; height: 16px; flex-shrink:0;">
+                            <path fill="#94a3b8" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5Z" />
+                            <path fill="#cbd5e1" d="M9.5 16.3c0-1.1.6-2.1 1.5-2.8.65.95 1.55 1.55 2.3 2.25.72.68 1.1 1.45 1.1 2.3a2.45 2.45 0 0 1-4.9 0v-1.75Z" />
+                          </svg>
+                          <span>0 days</span>
+                        </div>
+                      `;
                     } else {
                       actionButtonHtml = `
                         <div class="pair-streak-badge">

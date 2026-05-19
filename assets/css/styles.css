@@ -2556,6 +2556,16 @@ body.modal-open {
   animation: flameIgniteSmall 1.5s ease-in-out infinite alternate;
 }
 
+.pair-streak-badge--broken {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.35);
+  color: #64748b;
+}
+
+.pair-streak-badge--broken svg {
+  animation: none;
+}
+
 .pair-nudge-panel {
   width: min(100%, 420px);
   overflow: visible;

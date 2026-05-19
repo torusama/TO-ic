@@ -283,11 +283,7 @@ notificationList?.addEventListener("click", async (event) => {
       await deleteNotification(activeUser.uid, notifId);
     } else {
       await markNotificationRead(activeUser.uid, notifId);
-      if (notifData && (notifData.type === "streak_invite" || notifData.type === "streak_accept")) {
-        if (typeof window.openStreakModal === "function") {
-          window.openStreakModal(false, true, notifData.type === "streak_invite" ? "invites" : "friends");
-        }
-      }
+      openNotificationTarget(notifData);
     }
   } catch (error) {
     console.warn("Could not update notification:", error);
@@ -300,12 +296,21 @@ notificationList?.addEventListener("keydown", async (event) => {
   if (!item) return;
 
   event.preventDefault();
+  const notifData = activeNotifications.find((n) => n.id === item.dataset.notificationId);
   try {
     await markNotificationRead(activeUser.uid, item.dataset.notificationId);
+    openNotificationTarget(notifData);
   } catch (error) {
     console.warn("Could not mark notification as read:", error);
   }
 });
+
+function openNotificationTarget(notifData) {
+  if (!notifData || typeof window.openStreakModal !== "function") return;
+  if (notifData.type === "streak_invite" || notifData.type === "streak_accept" || notifData.type === "pair_streak_broken") {
+    window.openStreakModal(false, true, notifData.type === "streak_invite" ? "invites" : "friends");
+  }
+}
 
 markAllReadBtn?.addEventListener("click", async () => {
   if (!activeUser || !activeNotifications.some((item) => item.unread)) return;

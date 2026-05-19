@@ -29,6 +29,7 @@ async function runMailWorker({ mode = "all" } = {}) {
   const normalizedMode = String(mode || "all").toLowerCase();
   const result = {
     todayKey,
+    pairBreaks: null,
     starterReminders: null,
     reminders: null,
     announcements: null,
@@ -39,6 +40,7 @@ async function runMailWorker({ mode = "all" } = {}) {
   }
 
   if (["all", "reminders", "study-reminders"].includes(normalizedMode)) {
+    result.pairBreaks = await expireBrokenPairStreaks(todayKey);
     result.reminders = await sendDailyStudyReminders(todayKey);
   }
 
@@ -100,6 +102,22 @@ async function sendPairStreakNudge({ requesterUid, partnerUid }) {
   const pairUids = Array.isArray(pairData.uids) ? pairData.uids : [];
   if (!pairUids.includes(requesterUid) || !pairUids.includes(partnerUid) || (pairData.status || "active") !== "active") {
     throw createHttpError(403, "This pair streak is not active.");
+  }
+
+  if (shouldBreakPairStreak(pairData, todayKey)) {
+    await pairRef.set(
+      {
+        status: "broken",
+        streak: 0,
+        brokenDate: todayKey,
+        brokenAt: admin.firestore.FieldValue.serverTimestamp(),
+        brokenFromStreak: Number(pairData.streak || 0),
+        brokenReason: "three_days_without_pair_progress",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    throw createHttpError(409, "This pair streak has ended.");
   }
 
   const requesterData = requesterSnap.exists ? requesterSnap.data() || {} : {};
@@ -198,6 +216,8 @@ async function sendRealtimeStreakEventReminder({ actorUid, eventType = "lesson-c
     return { todayKey, eventType, sent: 0, skipped: 1, failed: 0, reason: "actor-not-studied-today" };
   }
 
+  await expireBrokenPairStreaks(todayKey);
+
   const pairSnapshot = await db
     .collection("pair_streaks")
     .where("uids", "array-contains", actorUid)
@@ -240,6 +260,146 @@ async function sendRealtimeStreakEventReminder({ actorUid, eventType = "lesson-c
           message: error.message,
         });
       }
+    }
+  }
+
+  return result;
+}
+
+async function expireBrokenPairStreaks(todayKey) {
+  const db = getDb();
+  const maxPairs = getNumberEnv("MAX_PAIR_BREAKS_PER_RUN", 30);
+  const snapshot = await db.collection("pair_streaks").where("status", "in", ["active", "broken"]).limit(maxPairs * 3).get();
+  const result = { scanned: snapshot.size, broken: 0, sent: 0, skipped: 0, failed: 0 };
+
+  for (const docSnap of snapshot.docs) {
+    if (result.broken >= maxPairs) break;
+
+    const pairData = docSnap.data() || {};
+    const alreadyBroken = (pairData.status || "active") === "broken";
+    if (!alreadyBroken && !shouldBreakPairStreak(pairData, todayKey)) {
+      result.skipped += 1;
+      continue;
+    }
+
+    const uids = Array.isArray(pairData.uids) ? pairData.uids.filter(Boolean).slice(0, 2) : [];
+    if (uids.length < 2) {
+      result.skipped += 1;
+      continue;
+    }
+
+    const breakDate = alreadyBroken && pairData.brokenDate ? pairData.brokenDate : todayKey;
+    const pairStreak = Number(pairData.brokenFromStreak || pairData.streak || 0);
+    const deliveryId = `pair-streak-broken__${breakDate}`;
+    const deliveryRef = docSnap.ref.collection("emailDeliveries").doc(deliveryId);
+    const deliverySnap = await deliveryRef.get();
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const brokenUpdate = alreadyBroken
+      ? {
+          status: "broken",
+          streak: 0,
+          ...(pairData.brokenFromStreak ? {} : { brokenFromStreak: pairStreak }),
+          updatedAt: now,
+        }
+      : {
+          status: "broken",
+          streak: 0,
+          brokenDate: breakDate,
+          brokenAt: now,
+          brokenFromStreak: pairStreak,
+          brokenReason: "three_days_without_pair_progress",
+          updatedAt: now,
+        };
+
+    await docSnap.ref.set(brokenUpdate, { merge: true });
+
+    if (!alreadyBroken) result.broken += 1;
+
+    if (deliverySnap.exists) {
+      result.skipped += 1;
+      continue;
+    }
+
+    try {
+      const userSnaps = await Promise.all(uids.map((uid) => db.collection("users").doc(uid).get()));
+      const users = userSnaps.map((snap, index) => ({
+        uid: uids[index],
+        ref: db.collection("users").doc(uids[index]),
+        data: snap.exists ? snap.data() || {} : {},
+      }));
+      let sentForPair = 0;
+
+      for (const user of users) {
+        if (!user.data.email) {
+          result.skipped += 1;
+          continue;
+        }
+
+        const partner = users.find((item) => item.uid !== user.uid) || { data: {} };
+        const copy = await createPairStreakBrokenCopy({
+          userData: user.data,
+          partnerData: partner.data,
+          pairData: {
+            ...pairData,
+            streak: pairStreak,
+            brokenFromStreak: pairStreak,
+          },
+          todayKey,
+        });
+
+        await sendMail({
+          to: user.data.email,
+          copy,
+          ctaUrl: `${getAppBaseUrl()}/pages/hoc-phan.html`,
+          type: "pair-streak-broken",
+          user: user.data,
+        });
+
+        await Promise.all([
+          user.ref.collection("emailDeliveries").doc(`${deliveryId}__${docSnap.id}`).set(
+            {
+              type: "pair-streak-broken",
+              to: user.data.email,
+              subject: copy.subject,
+              pairId: docSnap.id,
+              sentAt: now,
+            },
+            { merge: true }
+          ),
+          user.ref.collection("notifications").doc(`pair_streak_broken_${docSnap.id}_${breakDate}`).set(
+            {
+              title: "Team streak ended",
+              body: `Your team streak with ${cleanDisplayName(partner.data.displayName) || "your partner"} ended after 3 days without progress.`,
+              unread: true,
+              createdAt: now,
+              updatedAt: now,
+              type: "pair_streak_broken",
+              partnerUid: partner.uid || "",
+              pairId: docSnap.id,
+            },
+            { merge: true }
+          ),
+        ]);
+
+        result.sent += 1;
+        sentForPair += 1;
+      }
+
+      await deliveryRef.set(
+        {
+          type: "pair-streak-broken",
+          sentCount: sentForPair,
+          subject: "Team streak ended",
+          sentAt: now,
+        },
+        { merge: true }
+      );
+    } catch (error) {
+      result.failed += 1;
+      console.error("Pair streak break email failed:", {
+        pairId: docSnap.id,
+        message: error.message,
+      });
     }
   }
 
@@ -932,6 +1092,31 @@ async function createPairStreakBothIdleCopy(user, todayKey, context = {}) {
   );
 }
 
+async function createPairStreakBrokenCopy({ userData = {}, partnerData = {}, pairData = {}, todayKey }) {
+  const firstName = getFirstName(userData.displayName);
+  const partnerName = cleanDisplayName(partnerData.displayName) || "your partner";
+  const pairStreak = Number(pairData.brokenFromStreak || pairData.streak || 0);
+  const fallback = {
+    subject: "Team streak đã kết thúc",
+    preview: `Chuỗi ${pairStreak} ngày với ${partnerName} đã về 0.`,
+    body: `Chào ${firstName},\n\nTeam streak của bạn với ${partnerName} đã kết thúc vì 3 ngày liền không tăng chuỗi. Bộ đếm đã về 0, nhưng chỉ cần một bài TOEIC ngắn là có thể bắt đầu lại.`,
+    ctaText: "Bắt đầu lại",
+  };
+
+  return createAiEmailCopy(
+    {
+      kind: "pair-streak-broken",
+      displayName: userData.displayName,
+      firstName,
+      friendName: partnerName,
+      pairStreak,
+      todayKey,
+      context: `The pair/team streak with ${partnerName} has ended because the pair did not increase it for 3 days. Notify the learner clearly, without blaming either person, and invite them to restart with one short TOEIC lesson.`,
+    },
+    fallback
+  );
+}
+
 async function createComebackReminderCopy(user, todayKey, context = {}) {
   const data = user.data || {};
   const firstName = getFirstName(data.displayName);
@@ -1222,11 +1407,13 @@ function renderEmailHtml({ copy, ctaUrl, profileUrl, type, user = {} }) {
   const isStarter = type === "starter-reminder";
   const isMilestone = type === "milestone";
   const isFreeze = type === "freeze";
+  const isPairBroken = type === "pair-streak-broken";
   const isSocial =
     type === "friend-streak-danger" ||
     type === "friend-overtook" ||
     type === "pair-streak-nudge" ||
-    type === "pair-streak-both-idle";
+    type === "pair-streak-both-idle" ||
+    isPairBroken;
 
   let accent = "#ff9600";
   let accentShadow = "#d87b00";
@@ -1240,6 +1427,8 @@ function renderEmailHtml({ copy, ctaUrl, profileUrl, type, user = {} }) {
     accent = "#ffc800"; accentShadow = "#cc9f00"; heroEmoji = "🎉";
   } else if (isFreeze) {
     accent = "#2b70c9"; accentShadow = "#1e5299"; heroEmoji = "🧊";
+  } else if (isPairBroken) {
+    accent = "#94a3b8"; accentShadow = "#64748b"; heroEmoji = "&#10005;";
   } else if (isSocial) {
     accent = "#ce82ff"; accentShadow = "#a568cc"; heroEmoji = type === "friend-overtook" ? "🥊" : "🚨";
   }
@@ -1292,6 +1481,7 @@ function getEmailCopySystemPrompt() {
     "Subject: Ngắn, giật tít, khơi gợi tò mò hoặc mang tính sát thương cao (max 50 chars). Preview: Max 80 chars.",
     "If kind is 'pair-streak-nudge': write as a direct reminder from friendName/requesterName. They already studied today; the recipient must finish one lesson today so the pair/team streak can increase. Keep it short, playful, and contextual.",
     "If kind is 'pair-streak-both-idle': both partners have not studied today. Ask the recipient to be the first one to save the team streak. Keep it social, urgent, and not too guilty.",
+    "If kind is 'pair-streak-broken': the pair/team streak has ended after 3 days without progress. Be clear, calm, and invite them to restart with one short lesson.",
     "If kind is 'comeback-reminder': the learner has no active streak or has been away for multiple days. Make restarting feel easy with one short TOEIC lesson.",
     "Return only a JSON object with these keys: subject, preview, body, ctaText.",
   ].join("\n");
@@ -1347,8 +1537,15 @@ function getActiveStreak(stats = {}, todayKey) {
 
 function getActivePairStreak(pairData = {}, todayKey) {
   const streak = Number(pairData.streak || 0);
-  if (streak <= 0 || shouldResetStreak(pairData.lastUpdateDate, todayKey)) return 0;
+  if (streak <= 0 || shouldBreakPairStreak(pairData, todayKey)) return 0;
   return streak;
+}
+
+function shouldBreakPairStreak(pairData = {}, todayKey) {
+  const streak = Number(pairData.streak || 0);
+  if (streak <= 0 || !pairData.lastUpdateDate) return false;
+  const diffDays = getDaysBetweenDateKeys(pairData.lastUpdateDate, todayKey);
+  return Number.isFinite(diffDays) && diffDays >= 3;
 }
 
 function getPairPartnerUid(pairData = {}, uid) {
