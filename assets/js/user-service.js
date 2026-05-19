@@ -424,6 +424,7 @@ export async function sendPairStreakNudgeReminder(user, partnerUid, options = {}
   const token = await user.getIdToken();
   const response = await fetch("/api/pair-streak-nudge", {
     method: "POST",
+    keepalive: Boolean(options.keepalive),
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",

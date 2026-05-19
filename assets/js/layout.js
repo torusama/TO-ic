@@ -26,6 +26,7 @@ const playedStreakPopupKeys = new Set();
 const shownPairNudgeKeys = new Set();
 let shouldCheckPairNudgeAfterStreak = false;
 let activePairNudgeCandidate = null;
+let pairNudgeCloseTimer = null;
 
 if (header) {
   header.innerHTML = `
@@ -144,12 +145,15 @@ if (header) {
       <div class="profile-modal__backdrop" data-close-pair-nudge></div>
       <article class="profile-modal__panel pair-nudge-panel" role="dialog" aria-modal="true" aria-labelledby="pairNudgeTitle">
         <button class="profile-modal__close" type="button" data-close-pair-nudge aria-label="Close">&times;</button>
-        <img class="pair-nudge-avatar" id="pairNudgeAvatar" src="https://www.gravatar.com/avatar/?d=mp" alt="" />
+        <div class="pair-nudge-avatar-wrap">
+          <img class="pair-nudge-avatar" id="pairNudgeAvatar" src="https://www.gravatar.com/avatar/?d=mp" alt="" />
+          <span class="pair-nudge-check" aria-hidden="true">✓</span>
+        </div>
         <h2 id="pairNudgeTitle">Keep the team streak alive</h2>
         <p id="pairNudgeBody">Your partner has not studied today yet.</p>
         <div class="pair-nudge-actions">
           <button class="btn btn--secondary" type="button" data-close-pair-nudge>Later</button>
-          <button class="btn btn--primary" type="button" id="sendPairNudgeBtn">Remind partner</button>
+          <button class="btn btn--primary" type="button" id="sendPairNudgeBtn">Nhắc nhở</button>
         </div>
         <p class="pair-nudge-status" id="pairNudgeStatus" aria-live="polite"></p>
       </article>
@@ -406,31 +410,19 @@ if (header) {
     closePairNudgeModal();
   }));
 
-  sendPairNudgeBtn?.addEventListener("click", async () => {
-    if (!activeUser || !activePairNudgeCandidate) return;
-    sendPairNudgeBtn.disabled = true;
-    sendPairNudgeBtn.textContent = "Sending...";
-    if (pairNudgeStatus) pairNudgeStatus.textContent = "AzoTa is drafting the reminder email...";
+  sendPairNudgeBtn?.addEventListener("click", () => {
+    if (!activeUser || !activePairNudgeCandidate || sendPairNudgeBtn.disabled) return;
 
-    try {
-      const isTestMode = Boolean(activePairNudgeCandidate.isTestMode);
-      const result = await sendPairStreakNudgeReminder(activeUser, activePairNudgeCandidate.partnerUid, {
-        testMode: isTestMode,
-      });
-      if (pairNudgeStatus) {
-        pairNudgeStatus.textContent = result.testMode
-          ? `Test email sent to ${activePairNudgeCandidate.displayName}. Check their inbox.`
-          : result.alreadySent
-          ? `Already reminded ${activePairNudgeCandidate.displayName} today.`
-          : `Reminder sent to ${activePairNudgeCandidate.displayName}. Check their inbox.`;
-      }
-      sendPairNudgeBtn.textContent = result.testMode ? "Test sent" : result.alreadySent ? "Already sent" : "Sent";
-    } catch (error) {
-      console.warn("Could not send pair streak nudge:", error);
-      sendPairNudgeBtn.disabled = false;
-      sendPairNudgeBtn.textContent = "Remind partner";
-      if (pairNudgeStatus) pairNudgeStatus.textContent = formatPairNudgeError(error);
-    }
+    const user = activeUser;
+    const candidate = { ...activePairNudgeCandidate };
+    showPairNudgeQueued(candidate);
+
+    sendPairStreakNudgeReminder(user, candidate.partnerUid, {
+      testMode: Boolean(candidate.isTestMode),
+      keepalive: true,
+    }).catch((error) => {
+      console.warn("Could not send pair streak nudge after UI confirmation:", error);
+    });
   });
 
   testPairNudgeBtn?.addEventListener("click", async () => {
@@ -496,8 +488,13 @@ if (header) {
   }
 
   function closePairNudgeModal() {
+    if (pairNudgeCloseTimer) {
+      clearTimeout(pairNudgeCloseTimer);
+      pairNudgeCloseTimer = null;
+    }
     if (pairNudgeModal) pairNudgeModal.hidden = true;
     activePairNudgeCandidate = null;
+    resetPairNudgeFeedback();
   }
 
   async function openStreakModal(isAnimate = false, startOnPairView = false, initialTab = "friends") {
@@ -841,6 +838,7 @@ if (header) {
   }
 
   function openPairNudgeModal(candidate, { force = false } = {}) {
+    resetPairNudgeFeedback();
     activePairNudgeCandidate = candidate;
     if (!force) shownPairNudgeKeys.add(candidate.key);
 
@@ -849,7 +847,7 @@ if (header) {
       pairNudgeBody.textContent = candidate.isDemo
         ? "Demo Partner has not studied today yet. This is only a UI preview because no active pair was found."
         : candidate.isTestMode
-          ? `${candidate.displayName} is your pair streak partner. This sends a TEST reminder email without changing the real streak state.`
+          ? `${candidate.displayName} is your pair streak partner. This creates a TEST reminder without changing the real streak state.`
         : candidate.blockReason
           ? `${candidate.displayName} is your pair streak partner. A reminder can only be sent when you have studied today and they have not.`
         : `${candidate.displayName} has not studied today yet. Remind them to finish one lesson so your team streak can increase.`;
@@ -858,7 +856,7 @@ if (header) {
       pairNudgeStatus.textContent = candidate.isDemo
         ? "Demo mode: sending is disabled."
         : candidate.isTestMode
-          ? "Test mode: sends a [TEST] email and skips real reminder updates."
+          ? "Test mode: creates a [TEST] reminder and skips real streak updates."
         : candidate.blockReason
           ? candidate.blockReason
           : candidate.isTestCandidate
@@ -870,12 +868,39 @@ if (header) {
       sendPairNudgeBtn.textContent = candidate.isDemo
         ? "Demo only"
         : candidate.isTestMode
-          ? "Send test email"
+          ? "Nhắc thử"
           : candidate.blockReason
             ? "Not available"
-            : "Remind partner";
+            : "Nhắc nhở";
     }
     pairNudgeModal.hidden = false;
+  }
+
+  function showPairNudgeQueued(candidate) {
+    const panel = pairNudgeModal?.querySelector(".pair-nudge-panel");
+    panel?.classList.add("is-reminded");
+
+    if (sendPairNudgeBtn) {
+      sendPairNudgeBtn.disabled = true;
+      sendPairNudgeBtn.textContent = "Đã nhắc";
+    }
+    if (pairNudgeBody) {
+      pairNudgeBody.textContent = candidate.isTestMode
+        ? `AzoTa đã nhận lời nhắc thử cho ${candidate.displayName}.`
+        : `AzoTa đã nhận lời nhắc cho ${candidate.displayName}.`;
+    }
+    if (pairNudgeStatus) {
+      pairNudgeStatus.textContent = "Bạn cứ học tiếp, phần còn lại để AzoTa lo.";
+    }
+
+    pairNudgeCloseTimer = setTimeout(() => {
+      closePairNudgeModal();
+    }, 950);
+  }
+
+  function resetPairNudgeFeedback() {
+    const panel = pairNudgeModal?.querySelector(".pair-nudge-panel");
+    panel?.classList.remove("is-reminded");
   }
 
   function getPairNudgeBlockReason({ userStats = {}, pair = {}, partner = {}, todayStr }) {
@@ -892,22 +917,6 @@ if (header) {
     return "";
   }
 
-  function formatPairNudgeError(error) {
-    const message = error?.message || "";
-    if (/Finish a lesson today/i.test(message)) {
-      return "Finish one lesson today before sending a team streak reminder.";
-    }
-    if (/already safe/i.test(message)) {
-      return "Your team streak is already safe today, so no reminder was sent.";
-    }
-    if (/disabled study reminder/i.test(message)) {
-      return "Your partner has turned off study reminder emails.";
-    }
-    if (/does not have an email/i.test(message)) {
-      return "Your partner does not have an email address yet.";
-    }
-    return message || "Could not send reminder. Try again.";
-  }
 }
 
 function renderStreakWeekDays(weekStart, dayNames, getDayState) {
