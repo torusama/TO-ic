@@ -436,6 +436,30 @@ export async function sendPairStreakNudgeReminder(user, partnerUid, options = {}
   return data;
 }
 
+export async function queueStreakEventReminder(user, event = {}, options = {}) {
+  if (!user) throw new Error("Missing streak event user.");
+  const token = await user.getIdToken();
+  const response = await fetch("/api/streak-event", {
+    method: "POST",
+    keepalive: Boolean(options.keepalive),
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      type: event.type || "lesson-completed",
+      courseId: event.courseId || "",
+      lessonId: event.lessonId || "",
+    }),
+  });
+  const bodyText = await response.text().catch(() => "");
+  const data = parseJsonBody(bodyText);
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.error || bodyText || `Could not queue streak event reminder (${response.status}).`);
+  }
+  return data;
+}
+
 export async function claimStreakAnimation(uid, target = "header") {
   if (!db || !uid) return { shouldAnimate: false, from: 0, to: 0 };
 
@@ -600,6 +624,17 @@ export async function completeLesson(user, lesson) {
 
   if (changed) {
     updateActivePairStreaks(user.uid).catch(console.warn);
+    queueStreakEventReminder(
+      user,
+      {
+        type: "lesson-completed",
+        courseId: lesson.courseId,
+        lessonId: lesson.lessonId,
+      },
+      { keepalive: true }
+    ).catch((error) => {
+      console.warn("Could not queue streak event reminder:", error);
+    });
     recordLessonActivity(user, {
       type: "lesson-completed",
       title: "Lesson completed",

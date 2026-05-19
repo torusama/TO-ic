@@ -13,6 +13,9 @@
     },
     "api/pair-streak-nudge.js": {
       "maxDuration": 60
+    },
+    "api/streak-event.js": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -22,7 +25,15 @@
     },
     {
       "path": "/api/mail-worker",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/mail-worker",
       "schedule": "0 11 * * *"
+    },
+    {
+      "path": "/api/mail-worker",
+      "schedule": "0 14 * * *"
     }
   ]
 }

@@ -8,6 +8,8 @@ const DEFAULT_AI_PROVIDER = "groq";
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 const DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile";
 const DEFAULT_APP_BASE_URL = "https://to-ic.vercel.app";
+const MAX_PAIR_CONTEXTS = 8;
+const MAX_FRIEND_CONTEXTS = 8;
 const EMAIL_COPY_SCHEMA = {
   type: "object",
   properties: {
@@ -182,6 +184,68 @@ async function sendPairStreakNudge({ requesterUid, partnerUid }) {
   };
 }
 
+async function sendRealtimeStreakEventReminder({ actorUid, eventType = "lesson-completed" }) {
+  if (!actorUid) {
+    throw createHttpError(400, "Missing streak event actor.");
+  }
+
+  const db = getDb();
+  const todayKey = getDateKeyInTimeZone(new Date(), TIME_ZONE);
+  const actorSnap = await db.collection("users").doc(actorUid).get();
+  const actorData = actorSnap.exists ? actorSnap.data() || {} : {};
+
+  if (!hasStudiedToday(actorData.stats, todayKey)) {
+    return { todayKey, eventType, sent: 0, skipped: 1, failed: 0, reason: "actor-not-studied-today" };
+  }
+
+  const pairSnapshot = await db
+    .collection("pair_streaks")
+    .where("uids", "array-contains", actorUid)
+    .limit(getNumberEnv("MAX_REALTIME_PAIR_REMINDERS", 5))
+    .get();
+
+  const result = { todayKey, eventType, sent: 0, skipped: 0, failed: 0 };
+
+  for (const docSnap of pairSnapshot.docs) {
+    const pairData = docSnap.data() || {};
+    const partnerUid = getPairPartnerUid(pairData, actorUid);
+    if (!partnerUid || (pairData.status || "active") !== "active" || pairData.lastUpdateDate === todayKey) {
+      result.skipped += 1;
+      continue;
+    }
+
+    try {
+      const partnerSnap = await db.collection("users").doc(partnerUid).get();
+      const partnerData = partnerSnap.exists ? partnerSnap.data() || {} : {};
+      if (!partnerData.email || partnerData.emailPreferences?.studyReminders === false || hasStudiedToday(partnerData.stats, todayKey)) {
+        result.skipped += 1;
+        continue;
+      }
+
+      const sendResult = await sendPairStreakNudge({ requesterUid: actorUid, partnerUid });
+      if (sendResult.sent) {
+        result.sent += 1;
+      } else {
+        result.skipped += 1;
+      }
+    } catch (error) {
+      const status = Number(error.statusCode || 500);
+      if (status === 409 || status === 403 || status === 404) {
+        result.skipped += 1;
+      } else {
+        result.failed += 1;
+        console.error("Realtime streak event reminder failed:", {
+          actorUid,
+          partnerUid,
+          message: error.message,
+        });
+      }
+    }
+  }
+
+  return result;
+}
+
 async function sendDailyStudyReminders(todayKey) {
   const candidates = await getEmailCandidates((user) => shouldSendStudyReminder(user, todayKey), {
     resetBrokenStreaks: true,
@@ -190,8 +254,8 @@ async function sendDailyStudyReminders(todayKey) {
   const result = await deliverToCandidates({
     candidates,
     deliveryId: `study-reminder__${todayKey}`,
-    type: "study-reminder",
-    copyFactory: (user) => createStudyReminderCopy(user, todayKey, { kind: "study-reminder" }),
+    type: (user, copy) => copy.kind || "study-reminder",
+    copyFactory: (user) => createContextualStudyReminderCopy(user, todayKey),
     urlFactory: () => `${getAppBaseUrl()}/pages/hoc-phan.html`,
     notificationFactory: (copy) => ({
       id: `study-reminder__${todayKey}`,
@@ -203,6 +267,7 @@ async function sendDailyStudyReminders(todayKey) {
         {
           emailState: {
             lastStudyReminderDate: todayKey,
+            lastStudyReminderKind: copy.kind || "study-reminder",
             lastEmailSentAt: admin.firestore.FieldValue.serverTimestamp(),
           },
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -517,12 +582,13 @@ async function deliverToCandidates(options) {
 
     try {
       const copy = await copyFactory(user);
+      const deliveryType = typeof type === "function" ? type(user, copy) : type;
       const ctaUrl = urlFactory(user, copy);
       await sendMail({
         to: user.data.email,
         copy,
         ctaUrl,
-        type,
+        type: deliveryType,
         user: user.data,
       });
 
@@ -531,7 +597,7 @@ async function deliverToCandidates(options) {
       await Promise.all([
         deliveryRef.set(
           {
-            type,
+            type: deliveryType,
             to: user.data.email,
             subject: copy.subject,
             sentAt: now,
@@ -600,10 +666,155 @@ function isTerminalAnnouncementStatus(status) {
   return ["sending", "sent", "sent-with-errors"].includes(String(status || "").toLowerCase());
 }
 
+async function createContextualStudyReminderCopy(user, todayKey) {
+  const context = await getStudyReminderContext(user, todayKey);
+  let copy;
+
+  if (context.kind === "pair-streak-waiting") {
+    copy = await createPairStreakNudgeCopy({
+      requesterData: context.partnerData,
+      partnerData: user.data,
+      pairData: context.pairData,
+      todayKey,
+    });
+    return { ...copy, kind: "pair-streak-nudge" };
+  }
+
+  if (context.kind === "pair-streak-both-idle") {
+    copy = await createPairStreakBothIdleCopy(user, todayKey, context);
+    return { ...copy, kind: context.kind };
+  }
+
+  if (context.kind === "friend-overtook") {
+    copy = await createSocialEmailCopy(user, context.friendData, "friend-overtook");
+    return { ...copy, kind: context.kind };
+  }
+
+  if (context.kind === "comeback-reminder") {
+    copy = await createComebackReminderCopy(user, todayKey, context);
+    return { ...copy, kind: context.kind };
+  }
+
+  copy = await createStudyReminderCopy(user, todayKey, { kind: context.kind });
+  return { ...copy, kind: context.kind };
+}
+
+async function getStudyReminderContext(user, todayKey) {
+  const pairContext = await getPairStreakReminderContext(user, todayKey);
+  if (pairContext) return pairContext;
+
+  const friendContext = await getFriendActivityReminderContext(user, todayKey);
+  if (friendContext) return friendContext;
+
+  const activeStreak = getActiveStreak(user.data.stats, todayKey);
+  if (activeStreak > 0) {
+    return { kind: "study-reminder", streak: activeStreak };
+  }
+
+  const daysSinceLastStudy = getDaysBetweenDateKeys(user.data.stats?.lastStreakDate, todayKey);
+  if (Number.isFinite(daysSinceLastStudy) && daysSinceLastStudy >= 2) {
+    return { kind: "comeback-reminder", daysSinceLastStudy };
+  }
+
+  return { kind: "starter-reminder" };
+}
+
+async function getPairStreakReminderContext(user, todayKey) {
+  const snapshot = await getDb()
+    .collection("pair_streaks")
+    .where("uids", "array-contains", user.id)
+    .limit(MAX_PAIR_CONTEXTS)
+    .get();
+  const contexts = [];
+
+  for (const docSnap of snapshot.docs) {
+    const pairData = docSnap.data() || {};
+    const partnerUid = getPairPartnerUid(pairData, user.id);
+    const pairStreak = getActivePairStreak(pairData, todayKey);
+
+    if (!partnerUid || pairStreak <= 0 || (pairData.status || "active") !== "active" || pairData.lastUpdateDate === todayKey) {
+      continue;
+    }
+
+    const partnerData = await getProfileForReminder(partnerUid);
+    const partnerStudiedToday = hasStudiedToday(partnerData.stats, todayKey) || pairData[`${partnerUid}_lastUpdate`] === todayKey;
+    const kind = partnerStudiedToday ? "pair-streak-waiting" : "pair-streak-both-idle";
+
+    contexts.push({
+      kind,
+      pairData,
+      partnerData,
+      partnerUid,
+      pairStreak,
+      partnerName: cleanDisplayName(partnerData.displayName) || "your partner",
+    });
+  }
+
+  contexts.sort((a, b) => {
+    const priorityA = a.kind === "pair-streak-waiting" ? 2 : 1;
+    const priorityB = b.kind === "pair-streak-waiting" ? 2 : 1;
+    return priorityB - priorityA || b.pairStreak - a.pairStreak;
+  });
+
+  return contexts[0] || null;
+}
+
+async function getFriendActivityReminderContext(user, todayKey) {
+  const [followingSnap, followersSnap] = await Promise.all([
+    user.ref.collection("following").limit(MAX_FRIEND_CONTEXTS * 2).get(),
+    user.ref.collection("followers").limit(80).get(),
+  ]);
+  const followerIds = new Set(followersSnap.docs.map((docSnap) => docSnap.id));
+  const followingIds = followingSnap.docs.map((docSnap) => docSnap.id);
+  const mutualIds = followingIds.filter((uid) => followerIds.has(uid));
+  const candidateIds = (mutualIds.length ? mutualIds : followingIds).slice(0, MAX_FRIEND_CONTEXTS);
+
+  if (!candidateIds.length) return null;
+
+  const profileSnaps = await Promise.all(candidateIds.map((uid) => getDb().collection("publicProfiles").doc(uid).get()));
+  const activeFriends = profileSnaps
+    .filter((snap) => snap.exists)
+    .map((snap) => ({ uid: snap.id, ...(snap.data() || {}) }))
+    .filter((profile) => hasStudiedToday(profile.stats, todayKey))
+    .sort((a, b) => Number(b.stats?.streak || 0) - Number(a.stats?.streak || 0));
+
+  const friend = activeFriends[0];
+  if (!friend) return null;
+
+  return {
+    kind: "friend-overtook",
+    friendData: {
+      uid: friend.uid,
+      displayName: cleanDisplayName(friend.displayName) || "Your friend",
+      streak: Number(friend.stats?.streak || 0),
+    },
+  };
+}
+
+async function getProfileForReminder(uid) {
+  const db = getDb();
+  const [userSnap, publicSnap] = await Promise.all([
+    db.collection("users").doc(uid).get(),
+    db.collection("publicProfiles").doc(uid).get(),
+  ]);
+  const publicData = publicSnap.exists ? publicSnap.data() || {} : {};
+  const userData = userSnap.exists ? userSnap.data() || {} : {};
+
+  return {
+    ...publicData,
+    ...userData,
+    stats: {
+      ...(publicData.stats || {}),
+      ...(userData.stats || {}),
+    },
+  };
+}
+
 async function createStudyReminderCopy(user, todayKey, { kind = "study-reminder" } = {}) {
   const data = user.data;
   const streak = getActiveStreak(data.stats, todayKey);
   const firstName = getFirstName(data.displayName);
+  const isStarter = kind === "starter-reminder";
   let fallback;
   if (kind === "starter-reminder") {
     fallback = {
@@ -690,6 +901,59 @@ async function createSocialEmailCopy(user, friendData, kind) {
       streak,
       friendName,
       friendStreak: friendData.streak || 0,
+    },
+    fallback
+  );
+}
+
+async function createPairStreakBothIdleCopy(user, todayKey, context = {}) {
+  const data = user.data || {};
+  const firstName = getFirstName(data.displayName);
+  const partnerName = context.partnerName || "your partner";
+  const pairStreak = Number(context.pairStreak || context.pairData?.streak || 0);
+  const fallback = {
+    subject: `Team streak ${pairStreak} ngày đang chờ`,
+    preview: `${partnerName} cũng chưa học hôm nay. Một người mở màn đi nào.`,
+    body: `Chào ${firstName},\n\nBạn và ${partnerName} đều chưa học hôm nay. Team streak ${pairStreak} ngày sẽ không tự cứu mình đâu. Vào làm một bài TOEIC 5 phút để kéo cả đội dậy.`,
+    ctaText: "Cứu team streak",
+  };
+
+  return createAiEmailCopy(
+    {
+      kind: "pair-streak-both-idle",
+      displayName: data.displayName,
+      firstName,
+      friendName: partnerName,
+      pairStreak,
+      todayKey,
+      context: `Both pair streak partners have not studied today. Ask ${firstName} to start first so ${partnerName} is more likely to follow and the team streak can survive.`,
+    },
+    fallback
+  );
+}
+
+async function createComebackReminderCopy(user, todayKey, context = {}) {
+  const data = user.data || {};
+  const firstName = getFirstName(data.displayName);
+  const daysSinceLastStudy = Number(context.daysSinceLastStudy || 0);
+  const fallback = {
+    subject: "Mất nhịp rồi đó",
+    preview: "Quay lại bằng một bài TOEIC ngắn thôi.",
+    body: `Chào ${firstName},\n\n${daysSinceLastStudy || "Mấy"} ngày rồi bạn chưa học lại. Không cần comeback hoành tráng đâu: một bài TOEIC 5 phút là đủ để AzoTa biết bạn vẫn còn trên đời.`,
+    ctaText: "Học lại ngay",
+  };
+
+  return createAiEmailCopy(
+    {
+      kind: "comeback-reminder",
+      displayName: data.displayName,
+      firstName,
+      lessons: Number(data.stats?.lessons || 0),
+      daysSinceLastStudy,
+      recentCourse: data.learning?.recentCourse || "",
+      recentLesson: data.learning?.recentLesson || "",
+      todayKey,
+      context: "The learner has no active streak right now. Nudge them to restart gently with one short TOEIC lesson, without making it sound hopeless.",
     },
     fallback
   );
@@ -958,7 +1222,11 @@ function renderEmailHtml({ copy, ctaUrl, profileUrl, type, user = {} }) {
   const isStarter = type === "starter-reminder";
   const isMilestone = type === "milestone";
   const isFreeze = type === "freeze";
-  const isSocial = type === "friend-streak-danger" || type === "friend-overtook" || type === "pair-streak-nudge";
+  const isSocial =
+    type === "friend-streak-danger" ||
+    type === "friend-overtook" ||
+    type === "pair-streak-nudge" ||
+    type === "pair-streak-both-idle";
 
   let accent = "#ff9600";
   let accentShadow = "#d87b00";
@@ -1023,6 +1291,8 @@ function getEmailCopySystemPrompt() {
     "Giữ email tối giản: Tối đa 2-3 câu ngắn. Không chào hỏi dài dòng. Vào thẳng vấn đề.",
     "Subject: Ngắn, giật tít, khơi gợi tò mò hoặc mang tính sát thương cao (max 50 chars). Preview: Max 80 chars.",
     "If kind is 'pair-streak-nudge': write as a direct reminder from friendName/requesterName. They already studied today; the recipient must finish one lesson today so the pair/team streak can increase. Keep it short, playful, and contextual.",
+    "If kind is 'pair-streak-both-idle': both partners have not studied today. Ask the recipient to be the first one to save the team streak. Keep it social, urgent, and not too guilty.",
+    "If kind is 'comeback-reminder': the learner has no active streak or has been away for multiple days. Make restarting feel easy with one short TOEIC lesson.",
     "Return only a JSON object with these keys: subject, preview, body, ctaText.",
   ].join("\n");
 }
@@ -1075,6 +1345,17 @@ function getActiveStreak(stats = {}, todayKey) {
   return Number(stats.streak || 0);
 }
 
+function getActivePairStreak(pairData = {}, todayKey) {
+  const streak = Number(pairData.streak || 0);
+  if (streak <= 0 || shouldResetStreak(pairData.lastUpdateDate, todayKey)) return 0;
+  return streak;
+}
+
+function getPairPartnerUid(pairData = {}, uid) {
+  const uids = Array.isArray(pairData.uids) ? pairData.uids : [];
+  return uids.find((item) => item && item !== uid) || "";
+}
+
 function shouldResetStreak(lastStreakDate, todayKey) {
   if (!lastStreakDate) return false;
   return lastStreakDate !== todayKey && !isYesterdayKey(lastStreakDate, todayKey);
@@ -1095,6 +1376,13 @@ function parseDateKey(dateKey) {
   const match = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
   return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function getDaysBetweenDateKeys(fromKey, toKey) {
+  const fromDate = parseDateKey(fromKey);
+  const toDate = parseDateKey(toKey);
+  if (!fromDate || !toDate) return Number.NaN;
+  return Math.round((toDate.getTime() - fromDate.getTime()) / 86400000);
 }
 
 function getDateKeyInTimeZone(date, timeZone) {
@@ -1180,5 +1468,6 @@ module.exports = {
   verifyFirebaseRequest,
   runMailWorker,
   sendPairStreakNudge,
+  sendRealtimeStreakEventReminder,
   renderEmailHtml,
 };
