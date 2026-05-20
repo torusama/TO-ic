@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin Portal - TOEIC Learning</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="../assets/css/styles.css" />
+
+    <style>
+      .admin-layout {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 32px;
+        padding-bottom: 60px;
+      }
+      @media (min-width: 900px) {
+        .admin-layout {
+          grid-template-columns: 1fr 1.5fr;
+        }
+      }
+      .admin-card {
+        background: #fff;
+        border-radius: 16px;
+        border: 1px solid #ddd8e8;
+        padding: 24px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+      }
+      .admin-card h2 {
+        margin: 0 0 20px 0;
+        font-size: 20px;
+        color: var(--blue);
+      }
+      .form-group {
+        margin-bottom: 16px;
+      }
+      .form-group label {
+        display: block;
+        font-weight: 700;
+        margin-bottom: 6px;
+        font-size: 14px;
+        color: #333;
+      }
+      .form-group input, .form-group select {
+        width: 100%;
+        padding: 10px 14px;
+        border: 2px solid #e2e8f0;
+        border-radius: 8px;
+        font-family: inherit;
+        font-size: 15px;
+        transition: border-color 0.2s;
+      }
+      .form-group input:focus, .form-group select:focus {
+        border-color: var(--blue);
+        outline: none;
+      }
+      .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      .submit-btn {
+        width: 100%;
+        padding: 14px;
+        font-size: 16px;
+        margin-top: 8px;
+      }
+      .mail-status {
+        min-height: 20px;
+        margin: -4px 0 12px;
+        color: #64748b;
+        font-size: 14px;
+        font-weight: 700;
+      }
+      .toast {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        background: var(--green);
+        color: #fff;
+        padding: 16px 24px;
+        border-radius: 8px;
+        font-weight: 700;
+        transform: translateY(100px);
+        opacity: 0;
+        transition: all 0.3s ease;
+        z-index: 1000;
+        box-shadow: 0 10px 25px rgba(88, 204, 2, 0.3);
+      }
+      .toast.show {
+        transform: translateY(0);
+        opacity: 1;
+      }
+      .toast.error {
+        background: var(--red);
+        box-shadow: 0 10px 25px rgba(239, 29, 82, 0.3);
+      }
+    </style>
+
+    <script type="module" src="../assets/js/auth-guard.js"></script>
+    <script type="module" src="../assets/js/layout.js"></script>
+    <script type="module" src="../assets/js/admin.js"></script>
+  </head>
+  <body data-page="admin">
+    <div id="site-header"></div>
+
+    <main class="page-shell">
+      <section class="page-heading">
+        <p class="eyebrow">ADMINISTRATION</p>
+        <h1>Manage Courses & Lessons</h1>
+        <p>Thêm dữ liệu khóa học và bài học trực tiếp vào Firebase.</p>
+      </section>
+
+      <div id="admin-workspace" class="admin-layout" style="display: none;">
+
+        <!-- Cột 1: Thêm Khóa Học -->
+        <div>
+          <div class="admin-card">
+            <h2>➕ Thêm Khóa học mới</h2>
+            <form id="form-course">
+              <div class="form-group">
+                <label>ID Khóa học (viết liền không dấu, vd: toeic-listening)</label>
+                <input type="text" name="id" required placeholder="listening-sprint">
+              </div>
+              <div class="form-group">
+                <label>Tên Khóa học</label>
+                <input type="text" name="title" required placeholder="TOEIC Listening Sprint">
+              </div>
+              <div class="form-group">
+                <label>Mô tả ngắn (Subtitle)</label>
+                <input type="text" name="subtitle" placeholder="Chinh phục 850+">
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Màu sắc (Mã HEX)</label>
+                  <input type="text" name="color" value="#006bff">
+                </div>
+                <div class="form-group">
+                  <label>Thứ tự hiển thị (Order)</label>
+                  <input type="number" name="order" value="10">
+                </div>
+              </div>
+              <button type="submit" class="btn btn--primary submit-btn">Lưu Khóa học</button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Cột 2: Thêm Bài Học -->
+        <div>
+          <div class="admin-card">
+            <h2>📚 Thêm / Sửa Bài học (Lesson)</h2>
+            <form id="form-lesson">
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Chọn Khóa học</label>
+                  <select name="courseId" id="select-course" required>
+                    <option value="">Đang tải danh sách...</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Chọn Bài học để Sửa (Tùy chọn)</label>
+                  <select id="select-lesson">
+                    <option value="">-- Tạo Bài học Mới --</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label>ID Bài học (tự động tạo nếu để trống)</label>
+                  <input type="text" name="lessonId" id="input-lesson-id" placeholder="lesson-01">
+                </div>
+                <div class="form-group">
+                  <label>Tên Part (Tùy chọn, vd: PART 1)</label>
+                  <input type="text" name="partTitle" id="input-part-title" list="part-list" placeholder="Chọn hoặc gõ tên part mới">
+                  <datalist id="part-list"></datalist>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Thứ tự Part</label>
+                  <input type="number" name="partOrder" id="input-part-order" min="1" placeholder="Tự xếp cuối nếu để trống">
+                </div>
+                <div class="form-group">
+                  <label>Thứ tự Bài trong Part</label>
+                  <input type="number" name="order" min="1" value="1" required>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>Tên Bài học</label>
+                <input type="text" name="title" required placeholder="Giới thiệu Part 1">
+              </div>
+
+              <div class="form-group">
+                <label>Link Video (Youtube)</label>
+                <input type="text" name="video" placeholder="https://youtu.be/...">
+              </div>
+
+              <div class="form-group">
+                <label>Link Tài liệu đính kèm (PDF/Drive)</label>
+                <input type="text" name="file" placeholder="https://drive.google.com/...">
+              </div>
+
+              <div class="form-row">
+                <div class="form-group" style="display: flex; flex-direction: column; justify-content: center;">
+                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-top: 10px;">
+                    <input type="checkbox" name="isExercise" style="width: 20px; height: 20px; margin:0;">
+                    Là Bài Tập (Thi Online)
+                  </label>
+                </div>
+                <div class="form-group" style="display: flex; flex-direction: column; justify-content: center;">
+                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-top: 10px;">
+                    <input type="checkbox" name="notifyNewLesson" id="input-notify-new-lesson" style="width: 20px; height: 20px; margin:0;">
+                    Gửi email thông báo bài mới
+                  </label>
+                </div>
+              </div>
+
+              <p id="mail-status" class="mail-status" aria-live="polite"></p>
+
+              <button type="submit" class="btn btn--secondary submit-btn">Thêm Bài học</button>
+            </form>
+          </div>
+        </div>
+
+      </div>
+
+    </main>
+
+    <div id="toast" class="toast">Thành công!</div>
+  </body>
+</html>

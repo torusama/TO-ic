@@ -7,7 +7,7 @@ This path keeps Firebase on the free Spark plan. Firebase still stores users, st
 - Frontend: Vite app on Vercel.
 - Data: Firebase Auth + Firestore Spark.
 - Mail worker: `api/mail-worker.js` on Vercel.
-- Schedule: Vercel Cron calls `/api/starter-mail-worker` at `01:00 UTC` (`08:00 Asia/Bangkok`) for users with no streak, and `/api/mail-worker` at `11:00 UTC` (`18:00 Asia/Bangkok`) for streak rescue + announcements.
+- Schedule: Vercel Cron calls `/api/starter-mail-worker` at `01:00 UTC` (`08:00 Asia/Bangkok`) for users with no streak, and `/api/mail-worker` later in the day for streak rescue, dormant-user nudges, and announcements.
 - Sender: `azotatoeic@gmail.com` through a Gmail App Password.
 - AI copywriter: Groq by default, Gemini also supported.
 
@@ -25,6 +25,8 @@ CRON_SECRET=make-a-random-string-at-least-16-chars
 FIREBASE_SERVICE_ACCOUNT_B64=base64-encoded-service-account-json
 MAX_EMAILS_PER_RUN=40
 EMAIL_SEND_DELAY_MS=900
+MAX_STUDY_REMINDERS_PER_DAY=4
+DORMANT_WARNING_DAYS=5
 MAX_ANNOUNCEMENTS_PER_RUN=10
 MAX_LESSON_ANNOUNCEMENTS_PER_RUN=10
 ```
@@ -57,8 +59,16 @@ The route sends 18:00 streak reminders to users who:
 - have an email,
 - did not complete a lesson today,
 - have `emailPreferences.studyReminders !== false`,
-- have not already received today's reminder.
+- have not already received a reminder in the current reminder slot,
 - had an active streak yesterday, if their streak is still alive.
+
+Reminder frequency follows the user's profile setting:
+
+- Gentle: up to 1 study reminder per day.
+- Normal: up to 2 study reminders per day.
+- AzoTa dramatic: up to 4 study reminders per day.
+
+The dramatic dormant-user copy is only eligible after `DORMANT_WARNING_DAYS` days without a site visit or completed lesson.
 
 Vercel also calls:
 

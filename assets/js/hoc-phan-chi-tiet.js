@@ -11,6 +11,7 @@ import { renderCourseUnavailable, requireCourseAccess } from "./access-control.j
 
   const params = new URLSearchParams(window.location.search);
   const courseId = params.get("course");
+  const linkedLessonId = params.get("lesson");
   const course = await loadCourseWithLessons(courseId);
   const breadcrumb = document.querySelector("#course-breadcrumb");
   const detail = document.querySelector("#course-detail");
@@ -77,8 +78,9 @@ import { renderCourseUnavailable, requireCourseAccess } from "./access-control.j
   }
 
   function renderRow(item, index) {
+    const isLinkedTarget = linkedLessonId && item.id === linkedLessonId;
     return `
-      <div class="timeline-row ${item.isExercise ? "is-exercise" : ""}">
+      <div class="timeline-row ${item.isExercise ? "is-exercise" : ""} ${isLinkedTarget ? "is-linked-target" : ""}" data-lesson-id="${escapeHtml(item.id)}">
         <span class="timeline-index">${String(index + 1).padStart(2, "0")}</span>
         <span class="row-main">
           <strong>${renderTitle(item)}</strong>
@@ -108,25 +110,66 @@ import { renderCourseUnavailable, requireCourseAccess } from "./access-control.j
     `;
   }
 
+  let isPageRendered = false;
+  let didFocusLinkedLesson = false;
+
+  function focusLinkedLesson() {
+    if (didFocusLinkedLesson || !linkedLessonId) return;
+
+    const row = [...detail.querySelectorAll("[data-lesson-id]")].find((element) => element.dataset.lessonId === linkedLessonId);
+    if (!row) return;
+
+    const card = row.closest("[data-part-card]");
+    const toggle = card?.querySelector("[data-toggle-lessons]");
+    if (card?.classList.contains("is-collapsed")) {
+      card.classList.remove("is-collapsed");
+      toggle?.setAttribute("aria-expanded", "true");
+    }
+
+    didFocusLinkedLesson = true;
+    window.setTimeout(() => {
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 100);
+  }
+
   function renderPage() {
-    breadcrumb.innerHTML = `
-      <a href="./hoc-phan.html">Home</a>
-      <span>/</span>
-      <a href="./hoc-phan.html">Course catalog</a>
-      <span>/</span>
-      <strong>${escapeHtml(course.title)}</strong>
-    `;
+    if (!isPageRendered) {
+      breadcrumb.innerHTML = `
+        <a href="./hoc-phan.html">Home</a>
+        <span>/</span>
+        <a href="./hoc-phan.html">Course catalog</a>
+        <span>/</span>
+        <strong>${escapeHtml(course.title)}</strong>
+      `;
 
-    detail.innerHTML = `<div class="part-panels">${parts.map(renderPart).join("")}</div>`;
+      detail.innerHTML = `<div class="part-panels">${parts.map(renderPart).join("")}</div>`;
 
-    detail.querySelectorAll("[data-toggle-lessons]").forEach((toggle) => {
-      const card = toggle.closest("[data-part-card]");
-      toggle.addEventListener("click", () => {
-        const next = toggle.getAttribute("aria-expanded") !== "true";
-        toggle.setAttribute("aria-expanded", String(next));
-        card.classList.toggle("is-collapsed", !next);
+      detail.querySelectorAll("[data-toggle-lessons]").forEach((toggle) => {
+        const card = toggle.closest("[data-part-card]");
+        toggle.addEventListener("click", () => {
+          const next = toggle.getAttribute("aria-expanded") !== "true";
+          toggle.setAttribute("aria-expanded", String(next));
+          card.classList.toggle("is-collapsed", !next);
+        });
       });
-    });
+      isPageRendered = true;
+      focusLinkedLesson();
+
+    } else {
+      // Update only the actions (completion status)
+      detail.querySelectorAll('.timeline-row').forEach(row => {
+        const link = row.querySelector('[data-activity-item]');
+        if (!link) return;
+
+        const item = itemsById.get(link.dataset.activityItem);
+        if (!item) return;
+
+        const actionSpan = row.querySelector('.row-action');
+        if (actionSpan) {
+          actionSpan.innerHTML = renderAction(item);
+        }
+      });
+    }
   }
 
   renderPage();

@@ -120,6 +120,7 @@ import { renderCourseUnavailable, requireCourseAccess } from "./access-control.j
     </div>
   `;
 
+
   updateCompletionStatus();
   setupAuthSync();
 

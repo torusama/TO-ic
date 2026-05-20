@@ -9,9 +9,18 @@ const allowedCourseEmails = [
   "vtanfit001@gmail.com",
 ];
 
+const adminEmails = [
+  "vtanfit001@gmail.com",
+];
+
 export function hasCourseAccess(user) {
   const email = String(user?.email || "").trim().toLowerCase();
-  return allowedCourseEmails.includes(email);
+  return allowedCourseEmails.includes(email) || adminEmails.includes(email);
+}
+
+export function hasAdminAccess(user) {
+  const email = String(user?.email || "").trim().toLowerCase();
+  return adminEmails.includes(email);
 }
 
 export async function requireCourseAccess() {
@@ -19,6 +28,14 @@ export async function requireCourseAccess() {
   return {
     user,
     allowed: hasCourseAccess(user),
+  };
+}
+
+export async function requireAdminAccess() {
+  const user = await waitForSignedInUser();
+  return {
+    user,
+    allowed: hasAdminAccess(user),
   };
 }
 

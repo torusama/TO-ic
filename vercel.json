@@ -8,8 +8,17 @@
     "api/mail-worker.js": {
       "maxDuration": 60
     },
+    "api/lesson-announcement.js": {
+      "maxDuration": 60
+    },
     "api/starter-mail-worker.js": {
       "maxDuration": 60
+    },
+    "api/welcome-mail.js": {
+      "maxDuration": 60
+    },
+    "api/email-click.js": {
+      "maxDuration": 10
     },
     "api/pair-streak-nudge.js": {
       "maxDuration": 60

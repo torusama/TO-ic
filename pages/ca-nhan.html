@@ -127,6 +127,25 @@
                   <small>Announcements when a fresh TOEIC lesson is posted.</small>
                 </span>
               </label>
+              <div class="email-select">
+                <span>
+                  <strong>Reminder style</strong>
+                  <small>Controls how persistent the study coach gets.</small>
+                </span>
+                <div id="emailReminderIntensity" class="email-select__dropdown" data-value="dramatic">
+                  <button id="emailReminderIntensityButton" class="email-select__button" type="button" aria-haspopup="listbox" aria-expanded="false">
+                    <span id="emailReminderIntensityLabel">AzoTa dramatic</span>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </button>
+                  <div class="email-select__menu" role="listbox" aria-label="Reminder style" hidden>
+                    <button class="email-select__option" type="button" role="option" data-email-reminder-intensity-option="gentle">Gentle</button>
+                    <button class="email-select__option" type="button" role="option" data-email-reminder-intensity-option="normal">Normal</button>
+                    <button class="email-select__option is-selected" type="button" role="option" data-email-reminder-intensity-option="dramatic" aria-selected="true">AzoTa dramatic</button>
+                  </div>
+                </div>
+              </div>
             </div>
             <p id="emailSettingsStatus" class="email-settings-status">Mail will be sent from azotatoeic@gmail.com.</p>
           </article>

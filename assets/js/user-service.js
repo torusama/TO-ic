@@ -25,7 +25,7 @@ import {
 
 const defaultStats = { streak: 0, lessons: 0 };
 const defaultLearning = { recentCourse: "None yet", recentLesson: "None yet" };
-const defaultEmailPreferences = { studyReminders: true, newLessonAlerts: true };
+const defaultEmailPreferences = { studyReminders: true, newLessonAlerts: true, reminderIntensity: "dramatic" };
 const animationFields = {
   header: "streakHeaderAnimatedDate",
   profile: "streakProfileAnimatedDate",
@@ -71,10 +71,15 @@ export async function ensureUserProfile(user) {
   const snapshot = await getDoc(ref);
 
   if (snapshot.exists()) {
-    return normalizeProfile(user, snapshot.data());
+    const stored = snapshot.data();
+    touchUserEngagement(user.uid, stored).catch((error) => {
+      console.warn("Could not update user engagement:", error);
+    });
+    return normalizeProfile(user, stored);
   }
 
   const profile = normalizeProfile(user, {});
+  const todayStr = getTodayKey();
   await setDoc(
     ref,
     {
@@ -86,6 +91,10 @@ export async function ensureUserProfile(user) {
       stats: profile.stats,
       learning: profile.learning,
       emailPreferences: profile.emailPreferences,
+      engagement: {
+        lastSeenDate: todayStr,
+        lastSeenAt: serverTimestamp(),
+      },
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     },
@@ -94,7 +103,29 @@ export async function ensureUserProfile(user) {
 
   await setDoc(doc(db, "publicProfiles", user.uid), getPublicProfilePayload(user.uid, profile), { merge: true });
 
+  queueWelcomeEmail(user, { keepalive: true }).catch((error) => {
+    console.warn("Could not send welcome email:", error);
+  });
+
   return profile;
+}
+
+async function touchUserEngagement(uid, stored = {}) {
+  if (!db || !uid) return;
+  const todayStr = getTodayKey();
+  if (stored.engagement?.lastSeenDate === todayStr) return;
+
+  await setDoc(
+    doc(db, "users", uid),
+    {
+      engagement: {
+        lastSeenDate: todayStr,
+        lastSeenAt: serverTimestamp(),
+      },
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
 }
 
 export async function updateUserProfile(user, updates = {}) {
@@ -456,6 +487,26 @@ export async function queueStreakEventReminder(user, event = {}, options = {}) {
   const data = parseJsonBody(bodyText);
   if (!response.ok || data.ok === false) {
     throw new Error(data.error || bodyText || `Could not queue streak event reminder (${response.status}).`);
+  }
+  return data;
+}
+
+async function queueWelcomeEmail(user, options = {}) {
+  if (!user) throw new Error("Missing welcome email user.");
+  const token = await user.getIdToken();
+  const response = await fetch("/api/welcome-mail", {
+    method: "POST",
+    keepalive: Boolean(options.keepalive),
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({}),
+  });
+  const bodyText = await response.text().catch(() => "");
+  const data = parseJsonBody(bodyText);
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.error || bodyText || `Could not send welcome email (${response.status}).`);
   }
   return data;
 }
@@ -909,9 +960,14 @@ function parseDateKey(dateKey) {
 }
 
 function normalizeEmailPreferences(value = {}) {
+  const reminderIntensity = ["gentle", "normal", "dramatic"].includes(value.reminderIntensity)
+    ? value.reminderIntensity
+    : defaultEmailPreferences.reminderIntensity;
+
   return {
     studyReminders: value.studyReminders !== false && defaultEmailPreferences.studyReminders,
     newLessonAlerts: value.newLessonAlerts !== false && defaultEmailPreferences.newLessonAlerts,
+    reminderIntensity,
   };
 }
 

@@ -22,10 +22,38 @@ export async function loadCourseSummaries() {
       .filter((course) => course.published !== false)
       .sort(sortByOrderThenTitle);
 
-    return courses;
+    return await Promise.all(courses.map(hydrateCourseSummaryCounts));
   } catch (error) {
     console.warn("Could not load Firestore course summaries:", error);
     return [];
+  }
+}
+
+async function hydrateCourseSummaryCounts(course) {
+  try {
+    const lessonsSnap = await getDocs(collection(db, "courses", course.id, "lessons"));
+    const totals = lessonsSnap.docs.reduce(
+      (counts, docSnap) => {
+        const lesson = docSnap.data();
+        if (lesson.published === false) return counts;
+        if (lesson.isExercise) {
+          counts.exams += 1;
+        } else {
+          counts.lectures += 1;
+        }
+        return counts;
+      },
+      { lectures: 0, exams: 0 }
+    );
+
+    return {
+      ...course,
+      lectures: totals.lectures,
+      exams: totals.exams,
+    };
+  } catch (error) {
+    console.warn(`Could not load lesson counts for course ${course.id}:`, error);
+    return course;
   }
 }
 
@@ -63,12 +91,15 @@ export async function loadCourseWithLessons(courseId) {
 function buildCourseWithLessons(course, lessonItems) {
   const hasParts = Boolean(course.hasParts || course.parts?.length);
   const lessons = lessonItems.filter((item) => !item.isExercise);
+  const exams = lessonItems.filter((item) => item.isExercise);
 
   if (!hasParts) {
     return {
       ...course,
       parts: [],
       lessons,
+      lectures: lessons.length,
+      exams: exams.length,
     };
   }
 
@@ -101,21 +132,36 @@ function buildCourseWithLessons(course, lessonItems) {
 
   const parts = [...partsById.values()]
     .sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
-    .map((part) => ({
-      ...part,
-      items: part.items.sort(sortByOrderThenTitle),
-      lectures: part.lectures || part.items.filter((item) => !item.isExercise).length,
-      exams: part.exams || part.items.filter((item) => item.isExercise).length,
-    }));
+    .map((part) => {
+      const items = part.items.sort(sortByOrderThenTitle);
+      return {
+        ...part,
+        items,
+        lectures: items.filter((item) => !item.isExercise).length,
+        exams: items.filter((item) => item.isExercise).length,
+      };
+    });
 
   return {
     ...course,
     parts,
     lessons,
+    lectures: lessons.length,
+    exams: exams.length,
   };
 }
 
 function normalizeCourseSummary(id, data = {}) {
+  const parts = normalizeParts(data.parts);
+  const partTotals = parts.reduce(
+    (totals, part) => ({
+      lectures: totals.lectures + Number(part.lectures || 0),
+      exams: totals.exams + Number(part.exams || 0),
+    }),
+    { lectures: 0, exams: 0 }
+  );
+  const hasPartCounts = parts.some((part) => part.lectures || part.exams);
+
   return {
     id,
     title: data.title || "TOEIC Course",
@@ -124,12 +170,12 @@ function normalizeCourseSummary(id, data = {}) {
     tag: data.tag || "",
     color: data.color || "#ef1d52",
     image: data.image || "",
-    lectures: Number(data.lectures || 0),
-    exams: Number(data.exams || 0),
+    lectures: hasPartCounts ? partTotals.lectures : Number(data.lectures || 0),
+    exams: hasPartCounts ? partTotals.exams : Number(data.exams || 0),
     order: Number(data.order || 0),
     published: data.published !== false,
     hasParts: Boolean(data.hasParts),
-    parts: normalizeParts(data.parts),
+    parts,
   };
 }
 

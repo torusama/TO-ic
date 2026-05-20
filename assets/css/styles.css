@@ -922,12 +922,13 @@ a {
   display: grid;
   grid-template-rows: 1fr;
   overflow: hidden;
-  transition: grid-template-rows 0.28s ease, opacity 0.2s ease;
+  /* Remove opacity transition to prevent content from looking 'delayed' or 'laggy' during expansion */
+  transition: grid-template-rows 0.2s ease-out;
 }
 
 .course-list-card.is-collapsed .lesson-list-wrap {
   grid-template-rows: 0fr;
-  opacity: 0;
+  /* Removed opacity: 0; */
 }
 
 .timeline-list {
@@ -963,6 +964,15 @@ a {
 
 .timeline-row:hover {
   background: rgba(88, 204, 2, 0.05);
+}
+
+.timeline-row.is-linked-target {
+  background: #fff8df;
+  box-shadow: inset 4px 0 0 var(--golden);
+}
+
+.timeline-row.is-linked-target:hover {
+  background: #fff3c4;
 }
 
 .timeline-index {
@@ -1936,9 +1946,16 @@ a {
   display: grid;
 }
 
+.profile-email-grid.is-dropdown-open,
+.email-settings-card.is-dropdown-open {
+  position: relative;
+  z-index: 2000;
+}
+
 .email-settings-card {
   display: grid;
   gap: 16px;
+  overflow: visible;
   background: linear-gradient(180deg, rgba(16, 15, 62, 0.035), #fff 58%);
 }
 
@@ -1957,13 +1974,13 @@ a {
 
 .email-setting-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
 }
 
-.email-toggle {
+.email-toggle,
+.email-select {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
   gap: 12px;
   align-items: center;
   min-height: 92px;
@@ -1975,8 +1992,24 @@ a {
   transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
 }
 
+.email-toggle {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.email-select {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr);
+  z-index: 1;
+}
+
+.email-select.is-dropdown-open {
+  z-index: 2010;
+}
+
 .email-toggle:hover,
-.email-toggle:focus-within {
+.email-toggle:focus-within,
+.email-select:hover,
+.email-select:focus-within {
   border-color: rgba(88, 204, 2, 0.35);
   background: rgba(88, 204, 2, 0.05);
 }
@@ -2023,19 +2056,167 @@ a {
   opacity: 0.55;
 }
 
-.email-toggle strong {
+.email-toggle strong,
+.email-select strong {
   display: block;
   color: var(--dark-blue);
   font-weight: 900;
 }
 
-.email-toggle small {
+.email-toggle small,
+.email-select small {
   display: block;
   margin-top: 4px;
   color: var(--gray-light);
   font-size: 13px;
   font-weight: 800;
   line-height: 1.35;
+}
+
+.email-select__dropdown {
+  position: relative;
+  z-index: 1;
+}
+
+.email-select__dropdown.is-open {
+  z-index: 2020;
+}
+
+.email-select__button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 46px;
+  border: 2px solid var(--border-color);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fff, #fbfffa);
+  color: var(--dark-blue);
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.1;
+  padding: 0 12px 0 14px;
+  text-align: left;
+  box-shadow: 0 3px 0 #e5e5e5;
+  outline: none;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.email-select__button svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  transition: transform 0.16s ease;
+}
+
+.email-select__button:hover,
+.email-select__button:focus-visible,
+.email-select__dropdown.is-open .email-select__button {
+  border-color: var(--green);
+  box-shadow: 0 3px 0 rgba(88, 204, 2, 0.35), 0 0 0 3px rgba(88, 204, 2, 0.12);
+}
+
+.email-select__dropdown.is-open .email-select__button svg {
+  transform: rotate(180deg);
+}
+
+.email-select__menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 2030;
+  display: grid;
+  gap: 4px;
+  border: 2px solid rgba(88, 204, 2, 0.55);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 14px 28px rgba(16, 15, 62, 0.16);
+  padding: 6px;
+  transform-origin: top center;
+  animation: emailSelectMenuIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+.email-select__menu::before {
+  content: "";
+  position: absolute;
+  inset: -10px;
+  z-index: -1;
+  border-radius: 22px;
+}
+
+.email-select__option {
+  min-height: 40px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--dark-blue);
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 900;
+  padding: 0 12px;
+  text-align: left;
+  transition: background 0.16s ease, color 0.16s ease;
+  animation: emailSelectOptionIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.email-select__option:nth-child(1) {
+  animation-delay: 0.02s;
+}
+
+.email-select__option:nth-child(2) {
+  animation-delay: 0.04s;
+}
+
+.email-select__option:nth-child(3) {
+  animation-delay: 0.06s;
+}
+
+.email-select__option:hover,
+.email-select__option:focus-visible {
+  background: rgba(88, 204, 2, 0.1);
+  outline: none;
+}
+
+.email-select__option.is-selected {
+  background: var(--green);
+  color: #fff;
+}
+
+.email-select__dropdown.is-disabled {
+  opacity: 0.62;
+}
+
+.email-select__dropdown.is-disabled,
+.email-select__dropdown.is-disabled .email-select__button {
+  cursor: not-allowed;
+}
+
+@keyframes emailSelectMenuIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes emailSelectOptionIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .email-settings-status {
@@ -4618,4 +4799,320 @@ body.modal-open {
 
 .mobile-bottom-nav__link.is-active .mobile-bottom-nav__icon {
   transform: translateY(-2px);
+}
+
+/* ========================================================================
+   GLOBAL ENTRANCE ANIMATIONS & MICRO-INTERACTIONS
+   Adds polished, subtle motion to every page for a professional feel.
+   ======================================================================== */
+
+/* --- Page Heading entrance --- */
+@keyframes headingSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-heading {
+  animation: headingSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) 0.04s both;
+}
+
+.page-heading .eyebrow {
+  animation: headingSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) 0s both;
+}
+
+.page-heading h1 {
+  animation: headingSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) 0.06s both;
+}
+
+.page-heading p:not(.eyebrow) {
+  animation: headingSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
+}
+
+/* --- Topbar smooth entrance --- */
+@keyframes topbarSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.topbar {
+  animation: topbarSlideDown 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* --- Simple CSS-only Entrance Animations ---
+   Uses tight stagger delays to feel smooth and snappy.
+   No JS logic needed, no laggy DOM class manipulation.
+   ------------------------------------------------------------------- */
+@keyframes cardFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* course-card: uses opacity-only fade to avoid conflict with existing transition:transform */
+@keyframes cardFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.course-card {
+  animation: cardFadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.course-card:nth-child(1) { animation-delay: 0.03s; }
+.course-card:nth-child(2) { animation-delay: 0.06s; }
+.course-card:nth-child(3) { animation-delay: 0.09s; }
+.course-card:nth-child(4) { animation-delay: 0.12s; }
+.course-card:nth-child(5) { animation-delay: 0.15s; }
+.course-card:nth-child(6) { animation-delay: 0.18s; }
+
+/* --- Content/Lesson cards entrance --- */
+.content-card,
+.course-list-card,
+.empty-page {
+  animation: cardFadeUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.course-list-card:nth-child(1) { animation-delay: 0.03s; }
+.course-list-card:nth-child(2) { animation-delay: 0.06s; }
+.course-list-card:nth-child(3) { animation-delay: 0.09s; }
+.course-list-card:nth-child(4) { animation-delay: 0.12s; }
+.course-list-card:nth-child(5) { animation-delay: 0.15s; }
+
+.part-panels > .content-card:nth-child(1) { animation-delay: 0.03s; }
+.part-panels > .content-card:nth-child(2) { animation-delay: 0.06s; }
+.part-panels > .content-card:nth-child(3) { animation-delay: 0.09s; }
+.part-panels > .content-card:nth-child(4) { animation-delay: 0.12s; }
+.part-panels > .content-card:nth-child(5) { animation-delay: 0.15s; }
+.part-panels > .content-card:nth-child(6) { animation-delay: 0.18s; }
+.part-panels > .content-card:nth-child(7) { animation-delay: 0.21s; }
+.part-panels > .content-card:nth-child(8) { animation-delay: 0.24s; }
+
+/* --- Lesson page, flashcard, empty-page: no entrance animation (instant render) --- */
+
+/* --- Breadcrumb entrance --- */
+@keyframes breadcrumbFade {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.breadcrumb {
+  animation: breadcrumbFade 0.3s cubic-bezier(0.16, 1, 0.3, 1) 0s both;
+}
+
+/* --- Modal panel entrance (override static appearance) --- */
+@keyframes modalSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.profile-modal__panel {
+  animation: modalSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes backdropFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.profile-modal__backdrop {
+  animation: backdropFadeIn 0.2s ease both;
+}
+
+/* --- Notification items stagger (removed to prevent flash on real-time update) --- */
+
+/* --- Buttons: enhanced press effect for .btn --- */
+.btn {
+  transition: transform 0.14s cubic-bezier(0.2, 1, 0.2, 1),
+              box-shadow 0.14s ease,
+              filter 0.14s ease;
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow: none;
+  filter: brightness(0.97);
+}
+
+.btn:hover:not(:disabled) {
+  filter: brightness(1.04);
+}
+
+/* --- Nav link hover micro-interaction --- */
+.nav-links a {
+  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.nav-links a:hover {
+  transform: translateY(-1px);
+}
+
+/* --- Course thumb hover lift --- */
+.course-thumb {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.3s ease;
+}
+
+.course-card:hover .course-thumb {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(88, 204, 2, 0.18);
+}
+
+/* --- Profile card hover (no transform — conflicts with profileCardEntrance) --- */
+.profile-card {
+  transition: border-color 0.22s ease, box-shadow 0.22s ease;
+}
+
+.profile-card:hover {
+  border-color: rgba(88, 204, 2, 0.22);
+  box-shadow: 0 8px 24px rgba(16, 15, 62, 0.08);
+}
+
+/* --- Streak card hover (no transform — conflicts with profileCardEntrance) --- */
+.streak-card {
+  transition: border-color 0.22s ease, box-shadow 0.22s ease;
+}
+
+.streak-card:hover {
+  box-shadow: 0 16px 40px rgba(88, 204, 2, 0.2);
+}
+
+/* --- Download button press --- */
+.download-mini {
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+
+.download-mini:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow: none;
+}
+
+/* --- Notification bell hover glow --- */
+.notification-bell {
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.notification-bell:hover {
+  transform: scale(1.06);
+  box-shadow: 0 4px 14px rgba(255, 200, 0, 0.2);
+}
+
+/* --- Header streak pill hover --- */
+.header-streak {
+  transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  cursor: pointer;
+}
+
+.header-streak:hover {
+  background: rgba(255, 150, 0, 0.18);
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(255, 150, 0, 0.16);
+}
+
+.header-streak--pair:hover {
+  background: rgba(192, 132, 252, 0.2);
+  box-shadow: 0 4px 12px rgba(192, 132, 252, 0.18);
+}
+
+/* --- Pair streak items hover --- */
+.pair-streak-item {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.pair-streak-item:hover {
+  border-color: rgba(168, 85, 247, 0.3);
+  box-shadow: 0 6px 18px rgba(168, 85, 247, 0.1);
+  transform: translateY(-1px);
+}
+
+/* --- Friend cards (removed animation to prevent flash on real-time update) --- */
+
+/* --- Connection items hover --- */
+.connection-item {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.connection-item:hover {
+  border-color: rgba(88, 204, 2, 0.28);
+  box-shadow: 0 6px 16px rgba(88, 204, 2, 0.08);
+  transform: translateY(-1px);
+}
+
+/* --- Email toggle cards --- */
+.email-toggle:not(.stagger-item) {
+  animation: cardFadeUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* --- Doc grid links entrance --- */
+.doc-grid a {
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.doc-grid a:hover {
+  border-color: rgba(28, 176, 246, 0.35);
+  background: rgba(28, 176, 246, 0.04);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(28, 176, 246, 0.1);
+}
+
+/* video-frame, flash-actions: removed — nested inside animated parents, causes double-flash */
+
+/* --- Learning grid panels entrance --- */
+.learning-panel:not(.stagger-item) {
+  animation: cardFadeUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* --- Mobile bottom nav entrance --- */
+@media (max-width: 600px) {
+  @keyframes bottomNavSlideUp {
+    from {
+      opacity: 0;
+      transform: translateY(100%);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .mobile-bottom-nav {
+    animation: bottomNavSlideUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
+  }
+}
+
+/* --- Respect reduced motion --- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -1,5 +1,6 @@
 import { ensureDefaultNotifications, deleteNotification, listenNotifications, markNotificationRead } from "./notification-service.js";
 import { claimStreakAnimation, ensureUserProfile, listenUserProfile, listenPairStreaks, onUserChanged, getMutualFollowers, getPairStreaks, sendStreakInvite, acceptPairStreak, rejectPairStreak, getPublicProfile, sendPairStreakNudgeReminder } from "./user-service.js";
+import { hasAdminAccess } from "./access-control.js";
 import { rollStreakNumber, setStreakNumber } from "./streak-animation.js";
 
 const currentPage = document.body.dataset.page;
@@ -55,6 +56,7 @@ if (header) {
         <div class="topbar__right">
           <nav class="nav-links" aria-label="Main navigation">
             ${links.map((link) => `<a class="${link.id === currentPage ? "is-active" : ""}" href="${link.href}">${link.label}</a>`).join("")}
+            <a href="./admin.html" id="adminNav" style="display: none; color: var(--green); font-weight: 800;">Admin</a>
           </nav>
           <div class="notification-menu">
             <button class="notification-bell" type="button" aria-label="Notifications" aria-expanded="false" aria-controls="notificationPopover">
@@ -182,6 +184,11 @@ if (header) {
     renderNotifications();
     renderHeaderStreak(null);
     renderHeaderPairStreak([]);
+
+    const adminNav = document.getElementById("adminNav");
+    if (adminNav) {
+      adminNav.style.display = hasAdminAccess(user) ? "" : "none";
+    }
 
     if (!user) return;
 

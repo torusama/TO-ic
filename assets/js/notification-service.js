@@ -14,7 +14,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 const defaultNotifications = [
-  { id: "welcome", title: "Welcome back", body: "Your learning profile is ready to sync.", unread: true },
+  { id: "welcome", title: "Welcome to AzoTa TOEIC", body: "Your account is ready. Start with one short TOEIC lesson when you are ready.", unread: true },
   { id: "daily-goal", title: "Today goal", body: "Complete at least one TOEIC lesson to keep your rhythm.", unread: true },
   { id: "docs", title: "Documents", body: "Downloaded materials will be recorded in your profile.", unread: false },
 ];

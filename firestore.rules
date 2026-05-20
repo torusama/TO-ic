@@ -21,6 +21,10 @@ service cloud.firestore {
         ];
     }
 
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email == "vtanfit001@gmail.com";
+    }
+
     match /users/{uid} {
       allow read: if isSignedIn();
       allow write: if isOwner(uid);
@@ -77,11 +81,11 @@ service cloud.firestore {
 
     match /courses/{courseId} {
       allow read: if isAllowedCourseEmail();
-      allow write: if false;
+      allow write: if isAdmin();
 
       match /lessons/{lessonId} {
         allow read: if isAllowedCourseEmail();
-        allow write: if false;
+        allow write: if isAdmin();
       }
     }
 

@@ -41,6 +41,14 @@ const markAllReadBtn = document.querySelector("#markAllReadBtn");
 const clearNotificationsBtn = document.querySelector("#clearNotificationsBtn");
 const emailStudyReminders = document.querySelector("#emailStudyReminders");
 const emailNewLessonAlerts = document.querySelector("#emailNewLessonAlerts");
+const emailReminderIntensity = document.querySelector("#emailReminderIntensity");
+const emailReminderIntensityButton = document.querySelector("#emailReminderIntensityButton");
+const emailReminderIntensityLabel = document.querySelector("#emailReminderIntensityLabel");
+const emailReminderIntensityMenu = emailReminderIntensity?.querySelector(".email-select__menu");
+const emailReminderIntensityOptions = Array.from(document.querySelectorAll("[data-email-reminder-intensity-option]"));
+const emailReminderIntensityCard = emailReminderIntensity?.closest(".email-select");
+const emailSettingsCard = emailReminderIntensity?.closest(".email-settings-card");
+const emailSettingsGrid = emailReminderIntensity?.closest(".profile-email-grid");
 const emailSettingsStatus = document.querySelector("#emailSettingsStatus");
 const editProfileBtn = document.querySelector("#editProfileBtn");
 const editProfileModal = document.querySelector("#editProfileModal");
@@ -330,8 +338,40 @@ clearNotificationsBtn?.addEventListener("click", async () => {
   }
 });
 
+const EMAIL_REMINDER_INTENSITY_LABELS = {
+  gentle: "Gentle",
+  normal: "Normal",
+  dramatic: "AzoTa dramatic",
+};
+
 [emailStudyReminders, emailNewLessonAlerts].forEach((toggle) => {
   toggle?.addEventListener("change", saveEmailSettings);
+});
+
+emailReminderIntensityButton?.addEventListener("click", () => {
+  setEmailReminderIntensityOpen(!emailReminderIntensity?.classList.contains("is-open"));
+});
+
+emailReminderIntensityOptions.forEach((option) => {
+  option.addEventListener("click", () => {
+    const value = option.dataset.emailReminderIntensityOption || "dramatic";
+    if (!activeUser || option.disabled || getEmailReminderIntensityValue() === value) {
+      setEmailReminderIntensityOpen(false);
+      return;
+    }
+    setEmailReminderIntensityValue(value);
+    setEmailReminderIntensityOpen(false);
+    saveEmailSettings();
+  });
+});
+
+document.addEventListener("click", (event) => {
+  if (!emailReminderIntensity || emailReminderIntensity.contains(event.target)) return;
+  setEmailReminderIntensityOpen(false);
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") setEmailReminderIntensityOpen(false);
 });
 
 editProfileBtn?.addEventListener("click", openEditProfileModal);
@@ -1104,6 +1144,7 @@ async function saveEmailSettings() {
     await updateEmailPreferences(activeUser.uid, {
       studyReminders: emailStudyReminders?.checked,
       newLessonAlerts: emailNewLessonAlerts?.checked,
+      reminderIntensity: getEmailReminderIntensityValue(),
     });
     setEmailSettingsSaving(false, "Saved. Mail will be sent from azotatoeic@gmail.com.");
   } catch (error) {
@@ -1111,6 +1152,50 @@ async function saveEmailSettings() {
     setEmailSettingsSaving(false, "Could not save email settings. Try again.");
     renderEmailSettings();
   }
+}
+
+function getEmailReminderIntensityValue() {
+  return emailReminderIntensity?.dataset.value || "dramatic";
+}
+
+function setEmailReminderIntensityValue(value) {
+  const nextValue = ["gentle", "normal", "dramatic"].includes(value) ? value : "dramatic";
+  if (emailReminderIntensity) {
+    emailReminderIntensity.dataset.value = nextValue;
+  }
+  if (emailReminderIntensityLabel) {
+    emailReminderIntensityLabel.textContent = EMAIL_REMINDER_INTENSITY_LABELS[nextValue] || EMAIL_REMINDER_INTENSITY_LABELS.dramatic;
+  }
+  emailReminderIntensityOptions.forEach((option) => {
+    const isSelected = option.dataset.emailReminderIntensityOption === nextValue;
+    option.classList.toggle("is-selected", isSelected);
+    option.setAttribute("aria-selected", isSelected ? "true" : "false");
+  });
+}
+
+function setEmailReminderIntensityDisabled(isDisabled) {
+  emailReminderIntensityOptions.forEach((option) => {
+    option.disabled = isDisabled;
+  });
+  if (emailReminderIntensityButton) {
+    emailReminderIntensityButton.disabled = isDisabled;
+  }
+
+  if (!emailReminderIntensity) return;
+  emailReminderIntensity.classList.toggle("is-disabled", isDisabled);
+  emailReminderIntensity.setAttribute("aria-disabled", isDisabled ? "true" : "false");
+  if (isDisabled) setEmailReminderIntensityOpen(false);
+}
+
+function setEmailReminderIntensityOpen(isOpen) {
+  if (!emailReminderIntensity || !emailReminderIntensityButton || !emailReminderIntensityMenu) return;
+  const nextOpen = Boolean(isOpen && !emailReminderIntensity.classList.contains("is-disabled"));
+  emailReminderIntensity.classList.toggle("is-open", nextOpen);
+  emailReminderIntensityCard?.classList.toggle("is-dropdown-open", nextOpen);
+  emailSettingsCard?.classList.toggle("is-dropdown-open", nextOpen);
+  emailSettingsGrid?.classList.toggle("is-dropdown-open", nextOpen);
+  emailReminderIntensityButton.setAttribute("aria-expanded", nextOpen ? "true" : "false");
+  emailReminderIntensityMenu.hidden = !nextOpen;
 }
 
 function renderEmailSettings() {
@@ -1126,6 +1211,13 @@ function renderEmailSettings() {
     emailNewLessonAlerts.disabled = !activeUser;
   }
 
+  setEmailReminderIntensityValue(
+    ["gentle", "normal", "dramatic"].includes(preferences.reminderIntensity)
+      ? preferences.reminderIntensity
+      : "dramatic"
+  );
+  setEmailReminderIntensityDisabled(!activeUser || preferences.studyReminders === false);
+
   if (emailSettingsStatus && !emailSettingsStatus.dataset.isSaving) {
     emailSettingsStatus.textContent = activeUser
       ? "Mail will be sent from azotatoeic@gmail.com."
@@ -1137,6 +1229,7 @@ function setEmailSettingsSaving(isSaving, message) {
   [emailStudyReminders, emailNewLessonAlerts].forEach((toggle) => {
     if (toggle) toggle.disabled = isSaving || !activeUser;
   });
+  setEmailReminderIntensityDisabled(isSaving || !activeUser || emailStudyReminders?.checked === false);
 
   if (!emailSettingsStatus) return;
   emailSettingsStatus.dataset.isSaving = isSaving ? "true" : "";

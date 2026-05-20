@@ -7,6 +7,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"),
+        admin: resolve(__dirname, "pages/admin.html"),
         baiHoc: resolve(__dirname, "pages/bai-hoc.html"),
         caNhan: resolve(__dirname, "pages/ca-nhan.html"),
         hocPhan: resolve(__dirname, "pages/hoc-phan.html"),
