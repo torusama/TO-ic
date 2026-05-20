@@ -1,18 +1,18 @@
-import { auth, db } from "./firebase-app.js";
+import { db } from "./firebase-app.js";
 import {
   collection,
   doc,
   getDoc,
   getDocs,
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
-import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 import { hasCourseAccess } from "./access-control.js";
+import { getValidSignedInUser } from "./auth-session.js";
 
 export async function loadCourseSummaries() {
   if (!db) return [];
 
   try {
-    const user = await waitForSignedInUser();
+    const user = await getValidSignedInUser();
     if (!user) return [];
     if (!hasCourseAccess(user)) return [];
 
@@ -61,7 +61,7 @@ export async function loadCourseWithLessons(courseId) {
   if (!db) return null;
 
   try {
-    const user = await waitForSignedInUser();
+    const user = await getValidSignedInUser();
     if (!user) return null;
     if (!hasCourseAccess(user)) return null;
 
@@ -218,25 +218,4 @@ function sortByGlobalThenPartThenOrder(a, b) {
     Number(a.order || 0) - Number(b.order || 0) ||
     String(a.title || "").localeCompare(String(b.title || ""))
   );
-}
-
-function waitForSignedInUser(timeoutMs = 5000) {
-  if (!auth) return Promise.resolve(null);
-  if (auth.currentUser) return Promise.resolve(auth.currentUser);
-
-  return new Promise((resolve) => {
-    let settled = false;
-    let unsubscribe = () => {};
-    const timeoutId = window.setTimeout(() => finish(null), timeoutMs);
-
-    function finish(user) {
-      if (settled) return;
-      settled = true;
-      window.clearTimeout(timeoutId);
-      unsubscribe();
-      resolve(user || null);
-    }
-
-    unsubscribe = onAuthStateChanged(auth, finish, () => finish(null));
-  });
 }

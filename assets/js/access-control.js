@@ -1,5 +1,4 @@
-import { auth } from "./firebase-app.js";
-import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+import { getValidSignedInUser } from "./auth-session.js";
 
 const allowedCourseEmails = [
   "2454112132tuyen@ou.edu.vn",
@@ -24,7 +23,7 @@ export function hasAdminAccess(user) {
 }
 
 export async function requireCourseAccess() {
-  const user = await waitForSignedInUser();
+  const user = await getValidSignedInUser();
   return {
     user,
     allowed: hasCourseAccess(user),
@@ -32,7 +31,7 @@ export async function requireCourseAccess() {
 }
 
 export async function requireAdminAccess() {
-  const user = await waitForSignedInUser();
+  const user = await getValidSignedInUser();
   return {
     user,
     allowed: hasAdminAccess(user),
@@ -48,25 +47,4 @@ export function renderCourseUnavailable(root = document.querySelector("main")) {
       <strong>Khóa học không khả dụng</strong>
     </section>
   `;
-}
-
-function waitForSignedInUser(timeoutMs = 5000) {
-  if (!auth) return Promise.resolve(null);
-  if (auth.currentUser) return Promise.resolve(auth.currentUser);
-
-  return new Promise((resolve) => {
-    let settled = false;
-    let unsubscribe = () => {};
-    const timeoutId = window.setTimeout(() => finish(null), timeoutMs);
-
-    function finish(user) {
-      if (settled) return;
-      settled = true;
-      window.clearTimeout(timeoutId);
-      unsubscribe();
-      resolve(user || null);
-    }
-
-    unsubscribe = onAuthStateChanged(auth, finish, () => finish(null));
-  });
 }

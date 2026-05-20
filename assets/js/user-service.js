@@ -1,9 +1,12 @@
-import { auth, db, hasFirebaseConfig } from "./firebase-app.js";
+import { auth, authPersistenceReady, db, hasFirebaseConfig } from "./firebase-app.js";
+import {
+  markAuthSessionStarted,
+  onValidAuthStateChanged,
+  signOutWithSessionClear,
+} from "./auth-session.js";
 import {
   GoogleAuthProvider,
-  onAuthStateChanged,
   signInWithPopup,
-  signOut,
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 import {
   collection,
@@ -32,21 +35,20 @@ const animationFields = {
 };
 
 export function onUserChanged(callback) {
-  if (!auth) {
-    callback(null);
-    return () => {};
-  }
-  return onAuthStateChanged(auth, callback);
+  return onValidAuthStateChanged(callback);
 }
 
 export async function signInWithGoogle() {
   if (!auth) return null;
-  return signInWithPopup(auth, new GoogleAuthProvider());
+  await authPersistenceReady;
+  const result = await signInWithPopup(auth, new GoogleAuthProvider());
+  markAuthSessionStarted(result.user);
+  return result;
 }
 
 export async function signOutUser() {
   if (!auth) return;
-  await signOut(auth);
+  await signOutWithSessionClear();
 }
 
 export async function updateEmailPreferences(uid, preferences = {}) {
