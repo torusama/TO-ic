@@ -97,6 +97,48 @@
         background: var(--red);
         box-shadow: 0 10px 25px rgba(239, 29, 82, 0.3);
       }
+      @media (max-width: 680px) {
+        .admin-layout {
+          gap: 18px;
+          padding-bottom: 100px;
+        }
+        .admin-card {
+          border-radius: 14px;
+          padding: 18px;
+        }
+        .admin-card h2 {
+          font-size: 18px;
+          line-height: 1.25;
+        }
+        .form-row {
+          grid-template-columns: 1fr;
+          gap: 0;
+        }
+        .form-group {
+          margin-bottom: 14px;
+        }
+        .form-group label {
+          line-height: 1.35;
+        }
+        .form-group input,
+        .form-group select {
+          min-height: 48px;
+          font-size: 16px;
+        }
+        .submit-btn {
+          min-height: 52px;
+          padding: 0 16px;
+        }
+        .mail-status {
+          line-height: 1.4;
+        }
+        .toast {
+          right: 16px;
+          bottom: 86px;
+          left: 16px;
+          text-align: center;
+        }
+      }
     </style>
 
     <script type="module" src="../assets/js/auth-guard.js"></script>
