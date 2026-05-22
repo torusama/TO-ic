@@ -56,10 +56,12 @@ export function listenNotifications(uid, callback, onError = console.warn) {
     ref,
     (snapshot) =>
       callback(
-        snapshot.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...docSnap.data(),
-        }))
+        sortNotifications(
+          snapshot.docs.map((docSnap) => ({
+            id: docSnap.id,
+            ...docSnap.data(),
+          }))
+        )
       ),
     onError
   );
@@ -113,6 +115,27 @@ function normalizeNotifications(items) {
       body: item.body || "",
       unread: Boolean(item.unread),
     }));
+}
+
+function sortNotifications(items) {
+  return [...items].sort((a, b) => {
+    const unreadDiff = Number(Boolean(b.unread)) - Number(Boolean(a.unread));
+    if (unreadDiff) return unreadDiff;
+    return getNotificationTime(b) - getNotificationTime(a);
+  });
+}
+
+function getNotificationTime(item = {}) {
+  const value = item.createdAt || item.updatedAt || item.readAt || 0;
+  if (typeof value?.toMillis === "function") return value.toMillis();
+  if (typeof value?.seconds === "number") return value.seconds * 1000;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
 }
 
 function slugify(value) {

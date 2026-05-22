@@ -14,6 +14,7 @@ const links = [
 const header = document.querySelector("#site-header");
 let activeUser = null;
 let notifications = [];
+let allowNotificationItemAnimation = false;
 let activePairTab = "friends";
 let activeLoadPairFriends = null;
 let cachedMutuals = null;
@@ -26,6 +27,8 @@ let cachedProfile = null;
 const checkedHeaderAnimations = new Set();
 const playedStreakPopupKeys = new Set();
 const shownPairNudgeKeys = new Set();
+const renderedNotificationIds = new Set();
+const animatedNotificationIds = new Set();
 let shouldCheckPairNudgeAfterStreak = false;
 let activePairNudgeCandidate = null;
 let pairNudgeCloseTimer = null;
@@ -177,6 +180,9 @@ if (header) {
     cachedProfile = null;
     activePairNudgeCandidate = null;
     shouldCheckPairNudgeAfterStreak = false;
+    allowNotificationItemAnimation = false;
+    renderedNotificationIds.clear();
+    animatedNotificationIds.clear();
     unsubscribeNotifications();
     unsubscribeHeaderProfile();
     unsubscribePairStreaks();
@@ -201,6 +207,7 @@ if (header) {
         (items) => {
           notifications = items;
           renderNotifications();
+          allowNotificationItemAnimation = true;
         },
         (error) => {
           console.warn("Could not listen to notifications:", error);
@@ -302,19 +309,38 @@ if (header) {
 
     list.innerHTML = notifications.length
       ? notifications
-          .map(
-            (item) => `
-                <article class="notification-popover__item ${item.unread ? "is-unread" : ""}" data-notification-id="${item.id}" tabindex="0">
+          .map((item) => {
+            const id = String(item.id || "");
+            const isNewUnread = Boolean(
+              id &&
+                item.unread &&
+                allowNotificationItemAnimation &&
+                !renderedNotificationIds.has(id) &&
+                !animatedNotificationIds.has(id)
+            );
+            if (isNewUnread) animatedNotificationIds.add(id);
+            return `
+                <article class="notification-popover__item ${item.unread ? "is-unread" : ""} ${isNewUnread ? "is-new" : ""}" data-notification-id="${escapeHtml(id)}" tabindex="0">
                   <div style="flex-grow:1; display:flex; flex-direction:column; align-items:flex-start;">
                     <strong>${escapeHtml(item.title)}</strong>
                     <span style="margin-bottom:2px;">${escapeHtml(item.body)}</span>
                   </div>
                   <button class="notification-popover__delete" type="button" data-delete-notification aria-label="Delete notification">&times;</button>
                 </article>
-              `
-          )
+              `;
+          })
           .join("")
       : `<div class="notification-popover__empty">No notifications yet.</div>`;
+
+    syncRenderedNotificationIds(notifications);
+  }
+
+  function syncRenderedNotificationIds(items) {
+    const nextIds = new Set(items.map((item) => String(item.id || "")).filter(Boolean));
+    renderedNotificationIds.forEach((id) => {
+      if (!nextIds.has(id)) renderedNotificationIds.delete(id);
+    });
+    nextIds.forEach((id) => renderedNotificationIds.add(id));
   }
 
   function openNotificationTarget(notifData) {

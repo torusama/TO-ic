@@ -16,7 +16,7 @@ const EMAIL_COPY_SCHEMA = {
   properties: {
     subject: { type: "string", description: "Email subject, max 90 characters." },
     preview: { type: "string", description: "Inbox preview text, max 140 characters." },
-    body: { type: "string", description: "English email body, under 110 words." },
+    body: { type: "string", description: "Vietnamese email body, under 110 words." },
     ctaText: { type: "string", description: "Short call-to-action label." },
   },
   required: ["subject", "preview", "body", "ctaText"],
@@ -265,7 +265,7 @@ async function sendPairStreakNudge({ requesterUid, partnerUid }) {
     return {
       sent: false,
       alreadySent: true,
-      partnerName: cleanDisplayName(partnerData.displayName) || "your partner",
+      partnerName: cleanDisplayName(partnerData.displayName) || "bạn học của bạn",
       todayKey,
     };
   }
@@ -300,8 +300,8 @@ async function sendPairStreakNudge({ requesterUid, partnerUid }) {
     ),
     partnerRef.collection("notifications").doc(`pair_streak_nudge_${requesterUid}_${todayKey}`).set(
       {
-        title: "Pair Streak Reminder",
-        body: `${cleanDisplayName(requesterData.displayName) || "Your partner"} is waiting for you to study today.`,
+        title: "Nhắc học streak đôi",
+        body: `${cleanDisplayName(requesterData.displayName) || "Bạn học của bạn"} đang chờ bạn học hôm nay.`,
         unread: true,
         createdAt: now,
         updatedAt: now,
@@ -315,7 +315,7 @@ async function sendPairStreakNudge({ requesterUid, partnerUid }) {
   return {
     sent: true,
     alreadySent: false,
-    partnerName: cleanDisplayName(partnerData.displayName) || "your partner",
+    partnerName: cleanDisplayName(partnerData.displayName) || "bạn học của bạn",
     todayKey,
   };
 }
@@ -487,8 +487,8 @@ async function expireBrokenPairStreaks(todayKey) {
           ),
           user.ref.collection("notifications").doc(`pair_streak_broken_${docSnap.id}_${breakDate}`).set(
             {
-              title: "Team streak ended",
-              body: `Your team streak with ${cleanDisplayName(partner.data.displayName) || "your partner"} ended after 3 days without progress.`,
+              title: "Chuỗi học nhóm đã kết thúc",
+              body: `Chuỗi học cùng ${cleanDisplayName(partner.data.displayName) || "bạn học của bạn"} đã kết thúc sau 3 ngày không có tiến độ.`,
               unread: true,
               createdAt: now,
               updatedAt: now,
@@ -508,7 +508,7 @@ async function expireBrokenPairStreaks(todayKey) {
         {
           type: "pair-streak-broken",
           sentCount: sentForPair,
-          subject: "Team streak ended",
+          subject: "Chuỗi học nhóm đã kết thúc",
           sentAt: now,
         },
         { merge: true }
@@ -644,8 +644,8 @@ async function sendReadyAnnouncements() {
 
 function getWelcomeNotificationCopy() {
   return {
-    title: "Welcome to AzoTa TOEIC",
-    body: "Your account is ready. Start with one short TOEIC lesson when you are ready.",
+    title: "Chào mừng đến với AzoTa TOEIC",
+    body: "Tài khoản của bạn đã sẵn sàng. Hãy bắt đầu bằng một bài TOEIC ngắn khi bạn muốn.",
   };
 }
 
@@ -653,36 +653,36 @@ function createStudyReminderNotification(copy, todayKey, slot) {
   const kind = String(copy?.kind || "study-reminder");
   const variants = {
     "pair-streak-nudge": {
-      title: "Your pair streak is waiting",
-      body: "Complete one TOEIC lesson today so your team streak can grow.",
+      title: "Streak đôi đang chờ bạn",
+      body: "Hoàn thành một bài TOEIC hôm nay để chuỗi học nhóm tiếp tục tăng.",
     },
     "pair-streak-both-idle": {
-      title: "Team streak needs a starter",
-      body: "Be the first to complete a TOEIC lesson today and keep the team moving.",
+      title: "Chuỗi học nhóm cần người mở màn",
+      body: "Hãy là người đầu tiên hoàn thành một bài TOEIC hôm nay để kéo nhịp học lên.",
     },
     "friend-overtook": {
-      title: "A friend studied today",
-      body: "Keep pace with your friends by finishing one short TOEIC lesson.",
+      title: "Bạn bè đã học hôm nay",
+      body: "Giữ nhịp cùng bạn bè bằng một bài TOEIC ngắn.",
     },
     "comeback-reminder": {
-      title: "Restart your TOEIC rhythm",
-      body: "One short lesson is enough to get back on track today.",
+      title: "Khởi động lại nhịp học TOEIC",
+      body: "Một bài ngắn là đủ để quay lại guồng học hôm nay.",
     },
     "dormant-warning": {
-      title: "AzoTa is still waiting",
-      body: "You have been away for a few days. One short TOEIC lesson restarts the rhythm.",
+      title: "AzoTa vẫn đang đợi",
+      body: "Bạn đã vắng vài ngày rồi. Một bài TOEIC ngắn sẽ kéo nhịp học trở lại.",
     },
     milestone: {
-      title: "Streak milestone reached",
-      body: "Your consistency is growing. Keep it alive with another lesson.",
+      title: "Bạn vừa chạm mốc streak",
+      body: "Độ đều đặn đang tăng rồi. Giữ tiếp bằng một bài học nữa nhé.",
     },
     freeze: {
-      title: "Streak freeze used",
-      body: "Your streak survived. Complete a lesson today to protect it.",
+      title: "Đóng băng streak đã kích hoạt",
+      body: "Chuỗi học của bạn đã được cứu. Hoàn thành một bài hôm nay để bảo vệ nó.",
     },
     "study-reminder": {
-      title: "Protect your TOEIC streak",
-      body: "Complete one TOEIC lesson today before your streak resets.",
+      title: "Giữ streak TOEIC của bạn",
+      body: "Hoàn thành một bài TOEIC hôm nay trước khi chuỗi bị reset.",
     },
   };
 
@@ -695,16 +695,16 @@ function createStudyReminderNotification(copy, todayKey, slot) {
 function createStarterReminderNotification(todayKey, slot) {
   return {
     id: `starter-reminder__${todayKey}__${slot}`,
-    title: "Start your TOEIC routine",
-    body: "Complete one short lesson today to build your first streak.",
+    title: "Bắt đầu thói quen TOEIC",
+    body: "Hoàn thành một bài ngắn hôm nay để tạo streak đầu tiên.",
   };
 }
 
 function createAnnouncementNotification(announcementId) {
   return {
     id: `announcement__${announcementId}`,
-    title: "New TOEIC lesson available",
-    body: "A new lesson is ready in your course catalog.",
+    title: "Có bài TOEIC mới",
+    body: "Một bài học mới đã sẵn sàng trong danh sách khóa học.",
   };
 }
 
@@ -1126,7 +1126,7 @@ async function getPairStreakReminderContext(user, todayKey) {
       partnerData,
       partnerUid,
       pairStreak,
-      partnerName: cleanDisplayName(partnerData.displayName) || "your partner",
+      partnerName: cleanDisplayName(partnerData.displayName) || "bạn học của bạn",
     });
   }
 
@@ -1193,10 +1193,10 @@ async function getProfileForReminder(uid) {
 function createWelcomeEmailCopy(userData = {}) {
   const firstName = getFirstName(userData.displayName);
   return {
-    subject: "Welcome to AzoTa TOEIC",
-    preview: "Your account is ready. Start with one short TOEIC lesson.",
-    body: `Hi ${firstName},\n\nWelcome to AzoTa TOEIC. Your profile, streaks, notifications, and lesson progress are ready to sync across your account.\n\nStart with one short lesson today and build your first TOEIC streak.`,
-    ctaText: "Start learning",
+    subject: "Chào mừng đến với AzoTa TOEIC",
+    preview: "Tài khoản đã sẵn sàng. Bắt đầu bằng một bài TOEIC ngắn nhé.",
+    body: `Chào ${firstName},\n\nChào mừng bạn đến với AzoTa TOEIC. Hồ sơ, streak, thông báo và tiến độ bài học của bạn đã sẵn sàng để đồng bộ trên tài khoản.\n\nHãy bắt đầu bằng một bài ngắn hôm nay và tạo streak TOEIC đầu tiên.`,
+    ctaText: "Bắt đầu học",
   };
 }
 
@@ -1216,17 +1216,17 @@ async function createStudyReminderCopy(user, todayKey, { kind = "study-reminder"
       [
         {
           templateKey: "starter-zero-rent",
-          subject: "Your streak is still at zero",
-          preview: "One tiny TOEIC lesson fixes that.",
-          body: `Hi ${firstName},\n\nYour streak is sitting at zero like it pays rent there. One short TOEIC lesson today is enough to kick it out.`,
-          ctaText: "Start learning",
+          subject: "Streak vẫn đang ở số 0",
+          preview: "Một bài TOEIC nhỏ là sửa được ngay.",
+          body: `Chào ${firstName},\n\nStreak của bạn vẫn đang nằm yên ở số 0. Một bài TOEIC ngắn hôm nay là đủ để kéo nó dậy.`,
+          ctaText: "Bắt đầu học",
         },
         {
           templateKey: "starter-empty-streak",
-          subject: "AzoTa found an empty streak",
-          preview: "Five minutes can start the whole thing.",
-          body: `Hi ${firstName},\n\nThe streak counter is still blank. Give it one quick TOEIC lesson and let AzoTa stop staring at the zero.`,
-          ctaText: "Start lesson",
+          subject: "AzoTa thấy streak còn trống",
+          preview: "Năm phút là đủ để bắt đầu.",
+          body: `Chào ${firstName},\n\nBộ đếm streak vẫn còn trống. Làm nhanh một bài TOEIC để AzoTa khỏi nhìn chằm chằm vào số 0 nữa.`,
+          ctaText: "Vào bài học",
         },
       ],
       `${data.email}:${kind}:${todayKey}:${reminderState.count}`,
@@ -1235,18 +1235,18 @@ async function createStudyReminderCopy(user, todayKey, { kind = "study-reminder"
   } else if (kind === "milestone") {
     fallback = {
       templateKey: "milestone-protect",
-      subject: `${streak} days in a row`,
-      preview: "That streak is worth protecting.",
-      body: `Hi ${firstName},\n\nYou have kept your TOEIC streak alive for ${streak} days. Finish one more lesson today and keep the record moving.`,
-      ctaText: "Keep going",
+      subject: `${streak} ngày liên tiếp`,
+      preview: "Chuỗi này đáng để giữ tiếp.",
+      body: `Chào ${firstName},\n\nBạn đã giữ streak TOEIC được ${streak} ngày. Hoàn thành thêm một bài hôm nay để kỷ lục tiếp tục tăng.`,
+      ctaText: "Học tiếp",
     };
   } else if (kind === "freeze") {
     fallback = {
       templateKey: "freeze-save",
-      subject: "Your streak freeze stepped in",
-      preview: "Your streak survived, but today still counts.",
-      body: `Hi ${firstName},\n\nA streak freeze protected your ${streak}-day run. Complete one TOEIC lesson today so you do not need another save.`,
-      ctaText: "Study now",
+      subject: "Đóng băng streak vừa cứu bạn",
+      preview: "Streak đã sống sót, nhưng hôm nay vẫn cần học.",
+      body: `Chào ${firstName},\n\nĐóng băng streak đã bảo vệ chuỗi ${streak} ngày của bạn. Hoàn thành một bài TOEIC hôm nay để không cần thêm pha cứu nguy nữa.`,
+      ctaText: "Học ngay",
     };
   } else if (kind === "dormant-warning") {
     const daysAway = Number.isFinite(daysSinceLastEngagement) ? daysSinceLastEngagement : 5;
@@ -1254,17 +1254,17 @@ async function createStudyReminderCopy(user, todayKey, { kind = "study-reminder"
       [
         {
           templateKey: "dormant-worry",
-          subject: "Still here, or should I worry?",
-          preview: `${daysAway} days away. One TOEIC lesson restarts it.`,
-          body: `Hi ${firstName},\n\n${daysAway} days with no visit and no lesson. AzoTa is starting to look like the only one in this study plan, which is rude but fixable.`,
-          ctaText: "Prove it",
+          subject: "Còn ở đây không đó?",
+          preview: `${daysAway} ngày vắng mặt. Một bài TOEIC là khởi động lại được.`,
+          body: `Chào ${firstName},\n\n${daysAway} ngày không ghé web và không học bài nào. AzoTa bắt đầu thấy mình hơi đơn độc trong kế hoạch học này rồi, nhưng vẫn sửa được.`,
+          ctaText: "Học một bài",
         },
         {
           templateKey: "dormant-life-check",
-          subject: "AzoTa is checking for life",
-          preview: `${daysAway} quiet days. A tiny lesson ends the silence.`,
-          body: `Hi ${firstName},\n\nNo web visit, no streak, no TOEIC lesson for ${daysAway} days. Do one tiny lesson today and I will stop being dramatic.`,
-          ctaText: "Do one lesson",
+          subject: "AzoTa đang kiểm tra tín hiệu",
+          preview: `${daysAway} ngày im ắng. Một bài nhỏ là hết im.`,
+          body: `Chào ${firstName},\n\n${daysAway} ngày không vào web, không streak, không bài TOEIC. Làm một bài nhỏ hôm nay đi, AzoTa sẽ bớt làm quá.`,
+          ctaText: "Làm một bài",
         },
       ],
       `${data.email}:${kind}:${todayKey}:${daysAway}`,
@@ -1275,17 +1275,17 @@ async function createStudyReminderCopy(user, todayKey, { kind = "study-reminder"
       [
         {
           templateKey: "streak-nervous",
-          subject: "Your streak is looking nervous",
-          preview: `The ${streak}-day streak needs one lesson today.`,
-          body: `Hi ${firstName},\n\nYour ${streak}-day streak is doing the nervous side-eye. One short TOEIC lesson today keeps it alive.`,
-          ctaText: "Protect streak",
+          subject: "Streak của bạn đang run nhẹ",
+          preview: `Chuỗi ${streak} ngày cần một bài hôm nay.`,
+          body: `Chào ${firstName},\n\nChuỗi ${streak} ngày của bạn đang nhìn đồng hồ hơi căng. Một bài TOEIC ngắn hôm nay là giữ được nó.`,
+          ctaText: "Giữ streak",
         },
         {
           templateKey: "streak-beg",
-          subject: "Do not make the streak beg",
-          preview: `One TOEIC lesson saves ${streak} days of effort.`,
-          body: `Hi ${firstName},\n\n${streak} days of effort are waiting for a five-minute rescue. Open one lesson before the counter gets dramatic.`,
-          ctaText: "Rescue it",
+          subject: "Đừng để streak phải năn nỉ",
+          preview: `Một bài TOEIC cứu ${streak} ngày cố gắng.`,
+          body: `Chào ${firstName},\n\n${streak} ngày cố gắng đang chờ một pha cứu nguy năm phút. Mở một bài trước khi bộ đếm bắt đầu làm quá nhé.`,
+          ctaText: "Cứu streak",
         },
       ],
       `${data.email}:${kind}:${todayKey}:${reminderState.count}`,
@@ -1310,7 +1310,7 @@ async function createStudyReminderCopy(user, todayKey, { kind = "study-reminder"
       daysSinceLastEngagement,
       daysSinceLastStudy: Number.isFinite(daysSinceLastStudy) ? daysSinceLastStudy : null,
       sendTime: getSlotSendTime(slot),
-      tone: isStarter ? "playful first-step nudge" : "Duolingo-style playful pressure, witty, specific, no generic wellness language",
+      tone: isStarter ? "nhắc nhẹ bước đầu, vui và dễ vào học" : "nhắc học kiểu vui, hơi áp lực vừa phải, dí dỏm, cụ thể, không dùng câu động viên chung chung",
     },
     fallback
   );
@@ -1325,24 +1325,24 @@ async function createSocialEmailCopy(user, friendData, kind) {
   let fallback;
   if (kind === "friend-streak-danger") {
     fallback = {
-      subject: `${friendName} is waiting`,
-      preview: "Keep your shared study rhythm alive.",
-      body: `Hi ${firstName},\n\n${friendName} is counting on you to complete a TOEIC lesson today. One short session keeps the shared momentum alive.`,
-      ctaText: "Save the streak",
+      subject: `${friendName} đang chờ bạn`,
+      preview: "Giữ nhịp học chung của hai người.",
+      body: `Chào ${firstName},\n\n${friendName} đang chờ bạn hoàn thành một bài TOEIC hôm nay. Một buổi học ngắn là đủ để giữ nhịp học chung.`,
+      ctaText: "Cứu streak",
     };
   } else if (kind === "friend-overtook") {
     fallback = {
-      subject: `${friendName} studied today`,
-      preview: "Keep pace with one quick TOEIC lesson.",
-      body: `Hi ${firstName},\n\n${friendName} already completed a lesson today. Match that energy with one short TOEIC session.`,
-      ctaText: "Study now",
+      subject: `${friendName} đã học hôm nay`,
+      preview: "Theo kịp bằng một bài TOEIC nhanh.",
+      body: `Chào ${firstName},\n\n${friendName} đã hoàn thành một bài hôm nay rồi. Theo nhịp bằng một buổi TOEIC ngắn nhé.`,
+      ctaText: "Học ngay",
     };
   } else {
     fallback = {
-      subject: `${friendName} finished a lesson`,
-      preview: "Now it is your turn to keep moving.",
-      body: `Hi ${firstName},\n\n${friendName} finished a TOEIC lesson today. You can keep up with one quick lesson too.`,
-      ctaText: "Study now",
+      subject: `${friendName} vừa xong một bài`,
+      preview: "Giờ đến lượt bạn giữ nhịp.",
+      body: `Chào ${firstName},\n\n${friendName} vừa hoàn thành một bài TOEIC hôm nay. Bạn cũng có thể bắt kịp bằng một bài nhanh.`,
+      ctaText: "Học ngay",
     };
   }
 
@@ -1362,13 +1362,13 @@ async function createSocialEmailCopy(user, friendData, kind) {
 async function createPairStreakBothIdleCopy(user, todayKey, context = {}) {
   const data = user.data || {};
   const firstName = getFirstName(data.displayName);
-  const partnerName = context.partnerName || "your partner";
+  const partnerName = context.partnerName || "bạn học của bạn";
   const pairStreak = Number(context.pairStreak || context.pairData?.streak || 0);
   const fallback = {
-    subject: `${pairStreak}-day team streak is waiting`,
-    preview: `${partnerName} has not studied yet either. Start first.`,
-    body: `Hi ${firstName},\n\nYou and ${partnerName} have not studied today yet. Complete one short TOEIC lesson and give the team streak a chance to grow.`,
-    ctaText: "Start first",
+    subject: `Streak nhóm ${pairStreak} ngày đang chờ`,
+    preview: `${partnerName} cũng chưa học. Bạn mở màn trước nhé.`,
+    body: `Chào ${firstName},\n\nBạn và ${partnerName} đều chưa học hôm nay. Hoàn thành một bài TOEIC ngắn để chuỗi học nhóm có cơ hội tăng tiếp.`,
+    ctaText: "Mở màn",
   };
 
   return createAiEmailCopy(
@@ -1379,7 +1379,7 @@ async function createPairStreakBothIdleCopy(user, todayKey, context = {}) {
       friendName: partnerName,
       pairStreak,
       todayKey,
-      context: `Both pair streak partners have not studied today. Ask ${firstName} to start first so ${partnerName} is more likely to follow and the team streak can survive.`,
+      context: `Cả hai bạn trong streak đôi đều chưa học hôm nay. Nhắc ${firstName} mở màn trước để ${partnerName} dễ theo sau và chuỗi học nhóm được giữ lại.`,
     },
     fallback
   );
@@ -1387,13 +1387,13 @@ async function createPairStreakBothIdleCopy(user, todayKey, context = {}) {
 
 async function createPairStreakBrokenCopy({ userData = {}, partnerData = {}, pairData = {}, todayKey }) {
   const firstName = getFirstName(userData.displayName);
-  const partnerName = cleanDisplayName(partnerData.displayName) || "your partner";
+  const partnerName = cleanDisplayName(partnerData.displayName) || "bạn học của bạn";
   const pairStreak = Number(pairData.brokenFromStreak || pairData.streak || 0);
   const fallback = {
-    subject: "Team streak ended",
-    preview: `Your ${pairStreak}-day streak with ${partnerName} reset to 0.`,
-    body: `Hi ${firstName},\n\nYour team streak with ${partnerName} ended after 3 days without progress. One short TOEIC lesson is enough to start again.`,
-    ctaText: "Restart",
+    subject: "Chuỗi học nhóm đã kết thúc",
+    preview: `Chuỗi ${pairStreak} ngày với ${partnerName} đã về 0.`,
+    body: `Chào ${firstName},\n\nChuỗi học cùng ${partnerName} đã kết thúc sau 3 ngày không có tiến độ. Một bài TOEIC ngắn là đủ để bắt đầu lại.`,
+    ctaText: "Bắt đầu lại",
   };
 
   return createAiEmailCopy(
@@ -1404,7 +1404,7 @@ async function createPairStreakBrokenCopy({ userData = {}, partnerData = {}, pai
       friendName: partnerName,
       pairStreak,
       todayKey,
-      context: `The pair/team streak with ${partnerName} has ended because the pair did not increase it for 3 days. Notify the learner clearly, without blaming either person, and invite them to restart with one short TOEIC lesson.`,
+      context: `Chuỗi học đôi với ${partnerName} đã kết thúc vì 3 ngày không tăng tiến độ. Báo rõ cho người học, không đổ lỗi cho ai, và mời họ bắt đầu lại bằng một bài TOEIC ngắn.`,
     },
     fallback
   );
@@ -1417,16 +1417,16 @@ async function createComebackReminderCopy(user, todayKey, context = {}) {
   const fallback = pickTemplate(
     [
       {
-        subject: "Your streak left a note",
-        preview: "It says one short lesson would fix this.",
-        body: `Hi ${firstName},\n\n${daysSinceLastStudy || "A few"} days since your last lesson. Your streak packed a tiny suitcase, but one TOEIC lesson can still bring it back.`,
-        ctaText: "Bring it back",
+        subject: "Streak để lại lời nhắn",
+        preview: "Nó bảo một bài ngắn là cứu được.",
+        body: `Chào ${firstName},\n\nĐã ${daysSinceLastStudy || "vài"} ngày từ bài học gần nhất. Streak hơi dỗi rồi, nhưng một bài TOEIC vẫn kéo nó về được.`,
+        ctaText: "Kéo lại streak",
       },
       {
-        subject: "AzoTa noticed the silence",
-        preview: "One quick TOEIC lesson breaks it.",
-        body: `Hi ${firstName},\n\n${daysSinceLastStudy || "A few"} days without a lesson is getting suspicious. Do one short TOEIC session and make the dashboard less lonely.`,
-        ctaText: "Break silence",
+        subject: "AzoTa thấy hơi im ắng",
+        preview: "Một bài TOEIC nhanh là phá im lặng.",
+        body: `Chào ${firstName},\n\n${daysSinceLastStudy || "Vài"} ngày không học bài nào nghe hơi đáng ngờ rồi. Làm một buổi TOEIC ngắn để dashboard bớt trống nhé.`,
+        ctaText: "Học một bài",
       },
     ],
     `${data.email}:comeback:${todayKey}:${daysSinceLastStudy}`
@@ -1442,15 +1442,15 @@ async function createComebackReminderCopy(user, todayKey, context = {}) {
       recentCourse: data.learning?.recentCourse || "",
       recentLesson: data.learning?.recentLesson || "",
       todayKey,
-      context: "The learner has no active streak right now. Nudge them to restart gently with one short TOEIC lesson, without making it sound hopeless.",
+      context: "Người học hiện không có streak đang hoạt động. Nhắc họ bắt đầu lại nhẹ nhàng bằng một bài TOEIC ngắn, không làm họ thấy nản.",
     },
     fallback
   );
 }
 
 async function createPairStreakNudgeCopy({ requesterData = {}, partnerData = {}, pairData = {}, todayKey }) {
-  const requesterName = cleanDisplayName(requesterData.displayName) || "Your partner";
-  const partnerName = cleanDisplayName(partnerData.displayName) || "there";
+  const requesterName = cleanDisplayName(requesterData.displayName) || "Bạn học của bạn";
+  const partnerName = cleanDisplayName(partnerData.displayName) || "bạn";
   const firstName = getFirstName(partnerName);
   const pairStreak = Number(pairData.streak || 0);
   const fallback = getPairStreakNudgeFallback({
@@ -1469,7 +1469,7 @@ async function createPairStreakNudgeCopy({ requesterData = {}, partnerData = {},
       requesterName,
       pairStreak,
       todayKey,
-      context: `${requesterName} has completed a lesson today. ${partnerName} has not studied yet, so the pair streak cannot increase until ${partnerName} completes a lesson today.`,
+      context: `${requesterName} đã hoàn thành một bài hôm nay. ${partnerName} chưa học, nên streak đôi chưa thể tăng cho đến khi ${partnerName} hoàn thành một bài trong hôm nay.`,
     },
     fallback
   );
@@ -1478,22 +1478,22 @@ async function createPairStreakNudgeCopy({ requesterData = {}, partnerData = {},
 function getPairStreakNudgeFallback({ requesterName, firstName, pairStreak, todayKey }) {
   const templates = [
     {
-      subject: `${requesterName} is waiting`,
-      preview: "Your lesson is the missing step for today's team streak.",
-      body: `Hi ${firstName},\n\n${requesterName} already studied today. Complete one TOEIC lesson so your ${pairStreak}-day team streak can keep moving.`,
-      ctaText: "Study now",
+      subject: `${requesterName} đang chờ bạn`,
+      preview: "Bài học của bạn là bước còn thiếu cho streak hôm nay.",
+      body: `Chào ${firstName},\n\n${requesterName} đã học hôm nay rồi. Hoàn thành một bài TOEIC để chuỗi học nhóm ${pairStreak} ngày tiếp tục chạy.`,
+      ctaText: "Học ngay",
     },
     {
-      subject: "Your team streak needs you",
-      preview: `${requesterName} finished their turn. Yours is next.`,
-      body: `Hi ${firstName},\n\n${requesterName} finished today's lesson. Finish one too and your team streak can grow together.`,
-      ctaText: "Study now",
+      subject: "Streak nhóm cần bạn",
+      preview: `${requesterName} xong lượt rồi. Giờ đến bạn.`,
+      body: `Chào ${firstName},\n\n${requesterName} đã xong bài hôm nay. Bạn hoàn thành thêm một bài là chuỗi học nhóm có thể tăng tiếp.`,
+      ctaText: "Học ngay",
     },
     {
-      subject: `${requesterName} studied today`,
-      preview: "Do not leave the pair streak idle.",
-      body: `Hi ${firstName},\n\n${requesterName} completed a lesson today. If you complete one too, the team streak can continue.`,
-      ctaText: "Open lesson",
+      subject: `${requesterName} đã học hôm nay`,
+      preview: "Đừng để streak đôi đứng yên.",
+      body: `Chào ${firstName},\n\n${requesterName} đã hoàn thành một bài hôm nay. Nếu bạn cũng học một bài, streak nhóm sẽ tiếp tục.`,
+      ctaText: "Mở bài học",
     },
   ];
   return templates[hashText(`${requesterName}:${firstName}:${todayKey}`) % templates.length];
@@ -1503,10 +1503,10 @@ async function createAnnouncementCopy(user, announcement) {
   const data = user.data;
   const firstName = getFirstName(data.displayName);
   const fallback = {
-    subject: "New TOEIC lesson available",
-    preview: "A new lesson is ready in your course catalog.",
-    body: `Hi ${firstName},\n\nA new lesson is ready in ${announcement.courseTitle}: "${announcement.lessonTitle}". Open it when you are ready for your next TOEIC session.`,
-    ctaText: "Open lesson",
+    subject: "Có bài TOEIC mới",
+    preview: "Một bài mới đã sẵn sàng trong khóa học của bạn.",
+    body: `Chào ${firstName},\n\nMột bài mới đã sẵn sàng trong ${announcement.courseTitle}: "${announcement.lessonTitle}". Mở bài khi bạn sẵn sàng cho buổi TOEIC tiếp theo nhé.`,
+    ctaText: "Mở bài học",
   };
 
   return createAiEmailCopy(
@@ -1615,7 +1615,7 @@ async function sendMail({ to, copy, ctaUrl, type, user, tracking = null }) {
     "",
     `${copy.ctaText}: ${trackedCtaUrl}`,
     "",
-    `Email settings or unsubscribe: ${profileUrl}`,
+    `Cài đặt email hoặc hủy nhận: ${profileUrl}`,
   ].join("\n");
 
   await getMailTransporter().sendMail({
@@ -1810,41 +1810,41 @@ function renderEmailHtml({ copy, ctaUrl, profileUrl, type, user = {} }) {
 
   let accent = "#ff9600";
   let accentShadow = "#d87b00";
-  let heroEmoji = "🔥";
+  let heroLabel = "TO";
 
   if (isAnnouncement) {
-    accent = "#1cb0f6"; accentShadow = "#1899d6"; heroEmoji = "📖";
+    accent = "#1cb0f6"; accentShadow = "#1899d6"; heroLabel = "BÀI";
   } else if (isStarter) {
-    accent = "#ff4b4b"; accentShadow = "#cc3c3c"; heroEmoji = "😭";
+    accent = "#ff4b4b"; accentShadow = "#cc3c3c"; heroLabel = "01";
   } else if (isMilestone) {
-    accent = "#ffc800"; accentShadow = "#cc9f00"; heroEmoji = "🎉";
+    accent = "#ffc800"; accentShadow = "#cc9f00"; heroLabel = "OK";
   } else if (isFreeze) {
-    accent = "#2b70c9"; accentShadow = "#1e5299"; heroEmoji = "🧊";
+    accent = "#2b70c9"; accentShadow = "#1e5299"; heroLabel = "GIỮ";
   } else if (isPairBroken) {
-    accent = "#94a3b8"; accentShadow = "#64748b"; heroEmoji = "&#10005;";
+    accent = "#94a3b8"; accentShadow = "#64748b"; heroLabel = "0";
   } else if (isSocial) {
-    accent = "#ce82ff"; accentShadow = "#a568cc"; heroEmoji = type === "friend-overtook" ? "🥊" : "🚨";
+    accent = "#ce82ff"; accentShadow = "#a568cc"; heroLabel = type === "friend-overtook" ? "TOP" : "ĐÔI";
   }
 
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><meta http-equiv="X-UA-Compatible" content="IE=edge"><title>${escapeHtml(copy.subject)}</title><!--[if mso]><style>table,td{font-family:Arial,Helvetica,sans-serif!important}</style><![endif]--></head>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><meta http-equiv="X-UA-Compatible" content="IE=edge"><title>${escapeHtml(copy.subject)}</title><!--[if mso]><style>table,td{font-family:Arial,Helvetica,sans-serif!important}</style><![endif]--></head>
 <body style="margin:0;padding:0;background:#f0f2f5;font-family:Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;">
 <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">${escapeHtml(copy.preview)}${"&#847;".repeat(30)}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f0f2f5;"><tr><td align="center" style="padding:40px 20px;">
 <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;border-radius:16px;overflow:hidden;background:#ffffff;box-shadow:0 4px 12px rgba(0,0,0,0.05);">
 
 <tr><td style="padding:48px 32px 32px;text-align:center;">
-<div style="font-size:72px;line-height:1;margin:0 0 24px;">${heroEmoji}</div>
-<p style="margin:0 0 16px;color:#100f3e;font-size:26px;font-weight:900;line-height:1.3;letter-spacing:-0.5px;">${escapeHtml(copy.subject)}</p>
+<div style="width:76px;height:76px;margin:0 auto 24px;border-radius:22px;background:${accent};box-shadow:0 6px 0 ${accentShadow};color:#ffffff;font-size:24px;font-weight:900;line-height:76px;letter-spacing:0;text-align:center;">${escapeHtml(heroLabel)}</div>
+<p style="margin:0 0 16px;color:#100f3e;font-size:26px;font-weight:900;line-height:1.3;letter-spacing:0;">${escapeHtml(copy.subject)}</p>
 </td></tr>
 
 <tr><td style="padding:0 32px 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">${paragraphs}</table></td></tr>
 
-<tr><td style="padding:16px 32px 48px;" align="center"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="border-radius:12px;background:${accent};box-shadow:0 4px 0 ${accentShadow};"><a href="${escapeHtml(ctaUrl)}" style="display:block;padding:16px 24px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:900;letter-spacing:1px;text-transform:uppercase;text-align:center;">${escapeHtml(copy.ctaText)}</a></td></tr></table></td></tr>
+<tr><td style="padding:16px 32px 48px;" align="center"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="border-radius:12px;background:${accent};box-shadow:0 4px 0 ${accentShadow};"><a href="${escapeHtml(ctaUrl)}" style="display:block;padding:16px 24px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:900;letter-spacing:0;text-transform:uppercase;text-align:center;">${escapeHtml(copy.ctaText)}</a></td></tr></table></td></tr>
 
 <tr><td style="padding:24px 32px 32px;text-align:center;border-top:2px solid #e5e5e5;">
-<p style="margin:0 0 8px;color:#afafaf;font-size:14px;line-height:1.5;">You received this email because TOEIC account<br>notifications are enabled.</p>
-<p style="margin:0 0 16px;"><a href="${escapeHtml(profileUrl)}" style="color:#1cb0f6;font-size:14px;text-decoration:underline;">Manage email settings</a></p>
+<p style="margin:0 0 8px;color:#afafaf;font-size:14px;line-height:1.5;">Bạn nhận email này vì thông báo tài khoản<br>TOEIC đang được bật.</p>
+<p style="margin:0 0 16px;"><a href="${escapeHtml(profileUrl)}" style="color:#1cb0f6;font-size:14px;text-decoration:underline;">Quản lý cài đặt email</a></p>
 <p style="margin:0;color:#c0c0c0;font-size:13px;">&copy; AzoTa TOEIC</p>
 </td></tr>
 
@@ -1867,7 +1867,7 @@ function getAiApiKey(provider) {
 function getEmailCopySystemPrompt() {
   return [
     "You are 'AzoTa TOEIC', a Duolingo-style TOEIC study reminder with comic urgency: witty, clingy, slightly dramatic, but still supportive.",
-    "Write extremely short English emails that feel handcrafted for the learner. Avoid generic phrases such as 'Let's embark', 'Unlock your potential', 'boost your skills', or 'Do not hesitate'.",
+    "Write extremely short Vietnamese emails that feel handcrafted for the learner. Avoid generic phrases such as 'Hãy cùng bắt đầu hành trình', 'Mở khóa tiềm năng', 'nâng cao kỹ năng', or 'Đừng ngần ngại'.",
     "Every email must contain one specific hook based on the context: streak count, days away, reminder slot, friendName, pair streak, recent lesson, or no-streak status.",
     "Respect reminderIntensity: gentle is calm and low pressure, normal is playful, dramatic can be clingy and meme-like. Never be insulting.",
     "If kind is 'study-reminder' with a streak: make the streak feel like it is in danger and needs one lesson today. Be funny, not cruel.",
@@ -1885,7 +1885,7 @@ function getEmailCopySystemPrompt() {
     "If kind is 'pair-streak-both-idle': both partners have not studied today. Ask the recipient to be the first one to save the team streak. Keep it social, urgent, and not too guilty.",
     "If kind is 'pair-streak-broken': the pair/team streak has ended after 3 days without progress. Be clear, calm, and invite them to restart with one short lesson.",
     "If kind is 'comeback-reminder': the learner has no active streak or has been away for multiple days. Make restarting feel easy with one short TOEIC lesson.",
-    "All subject, preview, body, and ctaText values must be in English.",
+    "All subject, preview, body, and ctaText values must be in Vietnamese.",
     "Return only a JSON object with these keys: subject, preview, body, ctaText.",
   ].join("\n");
 }
@@ -1925,8 +1925,8 @@ function parseAiJson(value) {
 }
 
 function getFirstName(displayName) {
-  const cleanName = String(displayName || "there").trim();
-  return cleanName.split(/\s+/)[0] || "there";
+  const cleanName = String(displayName || "bạn").trim();
+  return cleanName.split(/\s+/)[0] || "bạn";
 }
 
 function hasStudiedToday(stats = {}, todayKey) {
@@ -2045,11 +2045,11 @@ function getReminderSlot(date = new Date()) {
 
 function getSlotSendTime(slot) {
   return {
-    morning: "early morning Asia/Bangkok",
-    midday: "midday Asia/Bangkok",
-    evening: "evening Asia/Bangkok",
-    night: "late night Asia/Bangkok",
-  }[slot] || "scheduled reminder time Asia/Bangkok";
+    morning: "buổi sáng theo giờ Asia/Bangkok",
+    midday: "buổi trưa theo giờ Asia/Bangkok",
+    evening: "buổi tối theo giờ Asia/Bangkok",
+    night: "đêm muộn theo giờ Asia/Bangkok",
+  }[slot] || "khung giờ nhắc học theo giờ Asia/Bangkok";
 }
 
 function toAbsoluteUrl(url) {

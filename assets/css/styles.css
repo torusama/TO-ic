@@ -358,6 +358,9 @@ a {
 .notification-popover__item.is-unread {
   border-color: var(--border-color);
   background: rgba(88, 204, 2, 0.06);
+}
+
+.notification-popover__item.is-new {
   animation: unreadSlide 0.72s ease-out 1 both;
 }
 
@@ -4237,6 +4240,11 @@ body.modal-open {
     min-height: 320px;
   }
 
+  .profile-card--notifications.profile-card--scroll {
+    height: clamp(460px, 72dvh, 560px);
+    min-height: clamp(460px, 72dvh, 560px);
+  }
+
   .profile-card--skill-chart {
     height: 320px;
     min-height: 320px;
@@ -4854,13 +4862,32 @@ body.modal-open {
 
   .profile-modal {
     align-items: end;
+    z-index: 1200;
     padding: 12px;
+  }
+
+  #connectionsModal.profile-modal {
+    align-items: center;
+    justify-items: center;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  }
+
+  #streakModal.profile-modal {
+    align-items: center;
+    justify-items: center;
+    padding: max(16px, env(safe-area-inset-top)) 12px max(16px, env(safe-area-inset-bottom));
   }
 
   .profile-modal__panel {
     max-height: 92vh;
     border-radius: 18px 18px 14px 14px;
     padding: 18px;
+  }
+
+  #connectionsModal .profile-modal__panel--connections {
+    width: min(100%, 380px);
+    max-height: min(82dvh, 560px);
+    margin: 0 auto;
   }
 
   .profile-modal__head h2 {
@@ -5012,7 +5039,10 @@ body.modal-open {
   }
 
   .streak-modal-panel {
-    height: min(92dvh, 560px);
+    width: min(100%, 360px);
+    height: min(68dvh, 420px);
+    max-height: min(68dvh, 420px);
+    margin: 0 auto;
   }
 
   .streak-modal-content {
