@@ -355,8 +355,7 @@ export async function sendStreakInvite(user, targetUid) {
           status: "pending",
           invitedBy: user.uid,
           createdAt: now,
-        },
-        { merge: true }
+        }
       )
     ]);
 

@@ -727,15 +727,7 @@ if (header) {
                         actionButtonHtml = `<span style="font-size: 12px; font-weight: 800; color: #a855f7; font-style: italic;">Invited you</span>`;
                       }
                     } else if (activePair.status === "broken" || activePair.isBroken) {
-                      actionButtonHtml = `
-                        <div class="pair-streak-badge pair-streak-badge--broken" aria-label="Pair streak ended">
-                          <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 16px; height: 16px; flex-shrink:0;">
-                            <path fill="#94a3b8" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5Z" />
-                            <path fill="#cbd5e1" d="M9.5 16.3c0-1.1.6-2.1 1.5-2.8.65.95 1.55 1.55 2.3 2.25.72.68 1.1 1.45 1.1 2.3a2.45 2.45 0 0 1-4.9 0v-1.75Z" />
-                          </svg>
-                          <span>0 days</span>
-                        </div>
-                      `;
+                      actionButtonHtml = `<button class="btn btn--primary pair-streak-invite-btn" type="button" data-invite-uid="${m.uid}">Invite</button>`;
                     } else {
                       actionButtonHtml = `
                         <div class="pair-streak-badge">
