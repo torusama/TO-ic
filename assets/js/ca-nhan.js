@@ -28,7 +28,6 @@ import {
   updateEmailPreferences,
   updateUserProfile,
 } from "./user-service.js";
-import { hasAdminAccess } from "./access-control.js";
 import { loadCourseWithLessons } from "./course-service.js";
 import { rollStreakNumber, setStreakNumber } from "./streak-animation.js";
 
@@ -79,13 +78,6 @@ const maxAvatarUploadBytes = 5 * 1024 * 1024;
 const avatarOutputSize = 240;
 const maxAvatarDataUrlLength = 650000;
 const acceptedAvatarTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
-const adminChartDemoData = {
-  Listening: { completed: 12, total: 16 },
-  Reading: { completed: 8, total: 14 },
-  Speaking: { completed: 5, total: 10 },
-  Writing: { completed: 7, total: 12 },
-  Practice: { completed: 4, total: 8 },
-};
 
 let activeUser = null;
 let activeProfile = normalizeProfile(null, {});
@@ -1293,24 +1285,7 @@ function getSkillChartItems() {
 }
 
 function getVisibleLearningMapItems() {
-  const items = getLearningMapItems().map(normalizeMapItem);
-  if (!shouldUseAdminChartDemoData()) return items;
-
-  return items.map((item) => {
-    const demo = adminChartDemoData[item.title];
-    if (!demo) return item;
-    const total = Math.max(Number(item.total || 0), demo.total);
-    const completed = Math.min(demo.completed, total);
-    return normalizeMapItem({
-      ...item,
-      completed,
-      total,
-    });
-  });
-}
-
-function shouldUseAdminChartDemoData() {
-  return !isGuestMode && hasAdminAccess(activeUser);
+  return getLearningMapItems().map(normalizeMapItem);
 }
 
 function renderSpiderMap(items) {
