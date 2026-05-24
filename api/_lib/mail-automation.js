@@ -2309,55 +2309,27 @@ function renderEmailHtml({ copy, ctaUrl, profileUrl, type, user = {} }) {
 }
 
 function getEmailHeroIcon(kind = "flame") {
+  let url = "https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f525.png";
+  let alt = "Streak flame";
+
   if (kind === "book") {
-    return `<svg width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="Lesson" style="display:block;margin:14px auto 0;">
-<path fill="#ffffff" d="M12 9.5h15.2c4.2 0 7.6 3.4 7.6 7.6v21.4H17.4A8.4 8.4 0 0 1 9 30.1V12.5c0-1.7 1.3-3 3-3Z"/>
-<path fill="#bfeaff" d="M14.5 32.3h20.3v6.2H16.7c-2.7 0-4.9-1.9-4.9-4.1 0-1.2 1.2-2.1 2.7-2.1Z"/>
-<path fill="#1cb0f6" d="M28.4 9.5h4.6v13.2l-2.3-1.7-2.3 1.7V9.5Z"/>
-</svg>`;
+    url = "https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4d6.png";
+    alt = "Lesson";
+  } else if (kind === "pair-flame") {
+    url = "https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f465.png";
+    alt = "Pair streak";
+  } else if (kind === "broken-flame") {
+    url = "https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f494.png";
+    alt = "Broken streak";
+  } else if (kind === "freeze-flame") {
+    url = "https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/2744.png";
+    alt = "Protected streak";
+  } else if (kind === "spark-flame") {
+    url = "https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/2728.png";
+    alt = "Spark flame";
   }
 
-  if (kind === "pair-flame") {
-    return `<svg width="52" height="52" viewBox="0 0 52 52" role="img" aria-label="Pair streak" style="display:block;margin:12px auto 0;">
-<g transform="translate(3 10) scale(1.45)" opacity="0.86">
-<path fill="#ffffff" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5Z"/>
-<path fill="#f4ddff" d="M9.5 16.3c0-1.1.6-2.1 1.5-2.8.65.95 1.55 1.55 2.3 2.25.72.68 1.1 1.45 1.1 2.3a2.45 2.45 0 0 1-4.9 0v-1.75Z"/>
-</g>
-<g transform="translate(20 5) scale(1.65)">
-<path fill="#ffffff" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5Z"/>
-<path fill="#f4ddff" d="M9.5 16.3c0-1.1.6-2.1 1.5-2.8.65.95 1.55 1.55 2.3 2.25.72.68 1.1 1.45 1.1 2.3a2.45 2.45 0 0 1-4.9 0v-1.75Z"/>
-</g>
-</svg>`;
-  }
-
-  if (kind === "broken-flame") {
-    return `<svg width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="Broken streak" style="display:block;margin:14px auto 0;">
-<g transform="translate(7 4) scale(1.45)">
-<path fill="#ffffff" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5Z"/>
-<path fill="#dbe3ec" d="M9.5 16.3c0-1.1.6-2.1 1.5-2.8.65.95 1.55 1.55 2.3 2.25.72.68 1.1 1.45 1.1 2.3a2.45 2.45 0 0 1-4.9 0v-1.75Z"/>
-</g>
-<path d="M13 35 35 13" fill="none" stroke="#64748b" stroke-width="5" stroke-linecap="round"/>
-</svg>`;
-  }
-
-  if (kind === "freeze-flame") {
-    return `<svg width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="Protected streak" style="display:block;margin:14px auto 0;">
-<path fill="#ffffff" d="M24 6 37 11v10c0 9.4-5.5 16.5-13 20-7.5-3.5-13-10.6-13-20V11l13-5Z"/>
-<g transform="translate(12 11) scale(1)">
-<path fill="#2b70c9" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5Z"/>
-<path fill="#b9dcff" d="M9.5 16.3c0-1.1.6-2.1 1.5-2.8.65.95 1.55 1.55 2.3 2.25.72.68 1.1 1.45 1.1 2.3a2.45 2.45 0 0 1-4.9 0v-1.75Z"/>
-</g>
-</svg>`;
-  }
-
-  const core = kind === "spark-flame" ? "#ffe8a3" : "#fff2b8";
-  return `<svg width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="Streak flame" style="display:block;margin:14px auto 0;">
-<g transform="translate(7 4) scale(1.45)">
-<path fill="#ffffff" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5Z"/>
-<path fill="${core}" d="M9.5 16.3c0-1.1.6-2.1 1.5-2.8.65.95 1.55 1.55 2.3 2.25.72.68 1.1 1.45 1.1 2.3a2.45 2.45 0 0 1-4.9 0v-1.75Z"/>
-</g>
-${kind === "spark-flame" ? '<path fill="#ffffff" d="M35 7l1.6 3.6L40 12l-3.4 1.4L35 17l-1.6-3.6L30 12l3.4-1.4L35 7Z"/>' : ""}
-</svg>`;
+  return `<img src="${url}" width="48" height="48" alt="${alt}" style="display:block;margin:14px auto 0;border:0;outline:none;text-decoration:none;">`;
 }
 
 function getAiProvider() {
