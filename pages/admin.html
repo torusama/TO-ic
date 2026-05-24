@@ -67,6 +67,18 @@
         font-size: 16px;
         margin-top: 8px;
       }
+      .delete-btn {
+        background: var(--red, #ef1d52) !important;
+        color: #fff !important;
+        border: none !important;
+      }
+      .delete-btn:hover {
+        background: #d61848 !important;
+      }
+      .delete-btn:disabled {
+        background: #fda4af !important;
+        cursor: not-allowed;
+      }
       .mail-status {
         min-height: 20px;
         margin: -4px 0 12px;
@@ -256,7 +268,7 @@
                 </div>
                 <div class="form-group" style="display: flex; flex-direction: column; justify-content: center;">
                   <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-top: 10px;">
-                    <input type="checkbox" name="notifyNewLesson" id="input-notify-new-lesson" style="width: 20px; height: 20px; margin:0;">
+                    <input type="checkbox" name="notifyNewLesson" id="input-notify-new-lesson" style="width: 20px; height: 20px; margin:0;" checked>
                     Gửi email thông báo bài mới
                   </label>
                 </div>
@@ -264,7 +276,10 @@
 
               <p id="mail-status" class="mail-status" aria-live="polite"></p>
 
-              <button type="submit" class="btn btn--secondary submit-btn">Thêm Bài học</button>
+              <div style="display: flex; gap: 12px; margin-top: 8px;">
+                <button type="submit" class="btn btn--secondary submit-btn" style="flex: 1; margin-top: 0;">Thêm Bài học</button>
+                <button type="button" id="btn-delete-lesson" class="btn submit-btn delete-btn" style="flex: 1; margin-top: 0; display: none;">Xóa Bài học</button>
+              </div>
             </form>
           </div>
         </div>

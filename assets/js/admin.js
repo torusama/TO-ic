@@ -1,5 +1,5 @@
 import { auth, db } from "./firebase-app.js";
-import { collection, doc, getDoc, getDocs, setDoc, writeBatch } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, setDoc, writeBatch, deleteDoc } from "firebase/firestore";
 import { getIdToken } from "firebase/auth";
 import { requireAdminAccess, renderCourseUnavailable } from "./access-control.js";
 
@@ -38,6 +38,11 @@ let loadedParts = [];
   inputPartTitle.addEventListener("blur", syncOrderFieldsFromPart);
   formCourse.addEventListener("submit", handleCreateCourse);
   formLesson.addEventListener("submit", handleCreateLesson);
+
+  const btnDeleteLesson = document.getElementById("btn-delete-lesson");
+  if (btnDeleteLesson) {
+    btnDeleteLesson.addEventListener("click", handleDeleteLesson);
+  }
 })();
 
 function showToast(message, isError = false) {
@@ -103,9 +108,14 @@ async function handleCourseSelectionChanged() {
 
 function handleLessonSelectionChanged() {
   const lessonId = selectLesson.value;
+  const btnDelete = document.getElementById("btn-delete-lesson");
+  const submitBtn = formLesson.querySelector("button[type='submit']");
+
   if (!lessonId) {
     // Reset form for new lesson
     resetLessonFields(selectCourse.value);
+    if (btnDelete) btnDelete.style.display = "none";
+    if (submitBtn) submitBtn.textContent = "Thêm Bài học";
     return;
   }
 
@@ -122,15 +132,29 @@ function handleLessonSelectionChanged() {
   inputPartOrder.value = lesson.partOrder || findPartById(lesson.partId)?.order || "";
   inputNotifyNewLesson.checked = Boolean(lesson.notifyNewLesson);
   updateMailStatus(lesson);
+
+  if (btnDelete) btnDelete.style.display = "block";
+  if (submitBtn) submitBtn.textContent = "Cập nhật Bài học";
 }
 
 async function handleCreateCourse(e) {
   e.preventDefault();
+  const submitBtn = formCourse.querySelector("button[type='submit']");
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.dataset.originalText = submitBtn.textContent;
+    submitBtn.textContent = "Đang xử lý...";
+  }
+
   const data = new FormData(formCourse);
   const id = data.get("id").trim();
 
   if (!id) {
     showToast("ID Khóa học không được để trống", true);
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = submitBtn.dataset.originalText || "Lưu Khóa học";
+    }
     return;
   }
 
@@ -156,6 +180,11 @@ async function handleCreateCourse(e) {
   } catch (error) {
     console.error("Error saving course:", error);
     showToast("Lỗi khi lưu khóa học", true);
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = submitBtn.dataset.originalText || "Lưu Khóa học";
+    }
   }
 }
 
@@ -210,8 +239,14 @@ function resetLessonFields(courseId) {
   formLesson.elements["isExercise"].checked = false;
   formLesson.elements["partTitle"].value = "";
   inputPartOrder.value = "";
-  inputNotifyNewLesson.checked = false;
+  inputNotifyNewLesson.checked = true;
   updateMailStatus(null);
+
+  const btnDelete = document.getElementById("btn-delete-lesson");
+  if (btnDelete) btnDelete.style.display = "none";
+
+  const submitBtn = formLesson.querySelector("button[type='submit']");
+  if (submitBtn) submitBtn.textContent = "Thêm Bài học";
 }
 
 function buildPartCatalog(course, lessons) {
@@ -715,11 +750,27 @@ async function saveLessonWithOrdering(courseId, lessonId, lessonData, partSelect
 
 async function handleCreateLesson(e) {
   e.preventDefault();
+  const submitBtn = formLesson.querySelector("button[type='submit']");
+  const btnDelete = document.getElementById("btn-delete-lesson");
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.dataset.originalText = submitBtn.textContent;
+    submitBtn.textContent = "Đang xử lý...";
+  }
+  if (btnDelete) {
+    btnDelete.disabled = true;
+  }
+
   const data = new FormData(formLesson);
 
   const courseId = data.get("courseId");
   if (!courseId) {
     showToast("Vui lòng chọn khóa học", true);
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = submitBtn.dataset.originalText || "Thêm Bài học";
+    }
+    if (btnDelete) btnDelete.disabled = false;
     return;
   }
 
@@ -727,6 +778,11 @@ async function handleCreateLesson(e) {
   const partSelection = resolvePartSelection(course, data.get("partTitle"));
   if (partSelection.error) {
     showToast(partSelection.error, true);
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = submitBtn.dataset.originalText || "Thêm Bài học";
+    }
+    if (btnDelete) btnDelete.disabled = false;
     return;
   }
 
@@ -790,5 +846,61 @@ async function handleCreateLesson(e) {
   } catch (error) {
     console.error("Error saving lesson:", error);
     showToast("Lỗi: " + (error.message || "Không xác định"), true);
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = submitBtn.dataset.originalText || "Thêm Bài học";
+    }
+    if (btnDelete) {
+      btnDelete.disabled = false;
+    }
+  }
+}
+
+async function handleDeleteLesson() {
+  const courseId = selectCourse.value;
+  const lessonId = selectLesson.value;
+
+  if (!courseId || !lessonId) {
+    showToast("Vui lòng chọn khóa học và bài học cần xóa", true);
+    return;
+  }
+
+  const lesson = loadedLessons.find(l => l.id === lessonId);
+  if (!lesson) return;
+
+  const confirmDelete = confirm(`Bạn có chắc chắn muốn xóa bài học "${lesson.title}" không?`);
+  if (!confirmDelete) return;
+
+  const btnDelete = document.getElementById("btn-delete-lesson");
+  const submitBtn = formLesson.querySelector("button[type='submit']");
+
+  if (btnDelete) btnDelete.disabled = true;
+  if (submitBtn) submitBtn.disabled = true;
+
+  try {
+    const lessonRef = doc(db, "courses", courseId, "lessons", lessonId);
+    await deleteDoc(lessonRef);
+
+    showToast(`Đã xóa bài học: ${lesson.title}`);
+
+    // Refresh course metadata
+    await refreshCoursePartMetadata(courseId, {
+      partId: lesson.partId,
+      partTitle: lesson.partTitle,
+      partOrder: lesson.partOrder
+    });
+
+    // Refresh the lessons list
+    await handleCourseSelectionChanged();
+
+    // Reset fields
+    resetLessonFields(courseId);
+  } catch (error) {
+    console.error("Error deleting lesson:", error);
+    showToast("Lỗi khi xóa bài học: " + (error.message || "Không xác định"), true);
+  } finally {
+    if (btnDelete) btnDelete.disabled = false;
+    if (submitBtn) submitBtn.disabled = false;
   }
 }
