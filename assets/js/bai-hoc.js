@@ -13,7 +13,7 @@ import { renderCourseUnavailable, requireCourseAccess } from "./access-control.j
   const params = new URLSearchParams(window.location.search);
   const courseId = params.get("course");
   const lessonId = params.get("lesson");
-  const course = await loadCourseWithLessons(courseId);
+  const course = await loadCourseWithLessons(courseId, access.user);
   const breadcrumb = document.querySelector("#lesson-breadcrumb");
   const learning = document.querySelector("#lesson-learning");
 
@@ -105,7 +105,10 @@ import { renderCourseUnavailable, requireCourseAccess } from "./access-control.j
 
           <div id="lessonTimer" class="lesson-timer is-loading" aria-live="polite">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            <span id="lessonTimerText">Checking lesson progress...</span>
+            <span id="lessonTimerText">
+              <span class="lesson-timer__full">Checking lesson progress...</span>
+              <span class="lesson-timer__compact">Checking...</span>
+            </span>
           </div>
         </div>
       </section>
@@ -210,14 +213,14 @@ import { renderCourseUnavailable, requireCourseAccess } from "./access-control.j
     let player = null;
 
     if (!video.src) {
-      setTimerState("loading", "Video is not ready yet.");
+      setTimerState("loading", "Video is not ready yet.", "No video");
       return;
     }
 
     showRemaining("paused", elapsed);
 
     if (!video.isYouTube) {
-      setTimerState("loading", "Play tracking is only available for YouTube videos.");
+      setTimerState("loading", "Play tracking is only available for YouTube videos.", "No tracking");
       return;
     }
 
@@ -242,7 +245,7 @@ import { renderCourseUnavailable, requireCourseAccess } from "./access-control.j
       })
       .catch((error) => {
         console.warn("Could not initialize YouTube tracking:", error);
-        setTimerState("loading", "Could not connect video tracking.");
+        setTimerState("loading", "Could not connect video tracking.", "Tracking error");
       });
 
     function tick() {
@@ -260,7 +263,7 @@ import { renderCourseUnavailable, requireCourseAccess } from "./access-control.j
       videoTime = getPlayerTime(player);
 
       if (elapsed >= totalSeconds) {
-        setTimerState("loading", "Completing lesson...");
+        setTimerState("loading", "Completing lesson...", "Completing...");
         saveNow();
         markLessonComplete();
         return;
@@ -328,7 +331,9 @@ import { renderCourseUnavailable, requireCourseAccess } from "./access-control.j
       const mins = Math.floor(secondsLeft / 60);
       const secs = secondsLeft % 60;
       const label = state === "running" ? "Auto-complete in" : "Paused - resume video to complete in";
-      setTimerState(state, `${label} ${mins}:${String(secs).padStart(2, "0")}`);
+      const compactLabel = state === "running" ? "Auto" : "Paused";
+      const time = `${mins}:${String(secs).padStart(2, "0")}`;
+      setTimerState(state, `${label} ${time}`, `${compactLabel} ${time}`);
     }
 
     function saveNow() {
@@ -378,7 +383,7 @@ import { renderCourseUnavailable, requireCourseAccess } from "./access-control.j
     const status = document.querySelector("#lessonCompletionStatus");
     if (status) status.hidden = !hasCompletedLesson;
     if (hasCompletedLesson) {
-      setTimerState("completed", "Lesson completed");
+      setTimerState("completed", "Lesson completed", "Done");
     }
   }
 
@@ -425,11 +430,11 @@ import { renderCourseUnavailable, requireCourseAccess } from "./access-control.j
     timerRunId += 1;
     clearTimeout(timerTimeoutId);
     timerTimeoutId = 0;
-    setTimerState("loading", "Checking lesson progress...");
+    setTimerState("loading", "Checking lesson progress...", "Checking...");
     return timerRunId;
   }
 
-  function setTimerState(state, text) {
+  function setTimerState(state, text, compactText = text) {
     const timerEl = document.querySelector("#lessonTimer");
     const timerText = document.querySelector("#lessonTimerText");
     if (!timerEl || !timerText) return;
@@ -439,6 +444,15 @@ import { renderCourseUnavailable, requireCourseAccess } from "./access-control.j
     timerEl.classList.toggle("is-running", state === "running");
     timerEl.classList.toggle("is-paused", state === "paused");
     timerEl.classList.toggle("is-completed", state === "completed");
-    timerText.textContent = text;
+
+    const full = document.createElement("span");
+    full.className = "lesson-timer__full";
+    full.textContent = text;
+
+    const compact = document.createElement("span");
+    compact.className = "lesson-timer__compact";
+    compact.textContent = compactText;
+
+    timerText.replaceChildren(full, compact);
   }
 })();

@@ -199,9 +199,6 @@ if (header) {
     if (!user) return;
 
     try {
-      const profile = await ensureUserProfile(user);
-      cachedProfile = profile;
-      await ensureDefaultNotifications(user);
       unsubscribeNotifications = listenNotifications(
         user.uid,
         (items) => {
@@ -216,7 +213,6 @@ if (header) {
         }
       );
 
-      renderHeaderStreak(profile);
       unsubscribePairStreaks = listenPairStreaks(
         user.uid,
         (items) => {
@@ -229,6 +225,7 @@ if (header) {
           renderHeaderPairStreak([]);
         }
       );
+
       unsubscribeHeaderProfile = listenUserProfile(
         user.uid,
         (nextProfile) => {
@@ -237,6 +234,21 @@ if (header) {
         },
         (error) => console.warn("Could not listen to header profile:", error)
       );
+
+      // Run profile initialization and seeding in background
+      ensureUserProfile(user).then((profile) => {
+        if (profile) {
+          if (!cachedProfile) {
+            cachedProfile = profile;
+            renderHeaderStreak(profile);
+          }
+          ensureDefaultNotifications(user, profile).catch((err) => {
+            console.warn("Could not ensure default notifications:", err);
+          });
+        }
+      }).catch((error) => {
+        console.warn("Could not initialize profile database:", error);
+      });
     } catch (error) {
       console.warn("Could not initialize notification data:", error);
     }

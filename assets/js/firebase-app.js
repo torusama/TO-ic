@@ -1,11 +1,11 @@
 import { FIREBASE_CONFIG } from "./firebase-config.js";
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+import { initializeApp } from "firebase/app";
 import {
   browserLocalPersistence,
   getAuth,
   setPersistence,
-} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+} from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
 
 const requiredFirebaseKeys = ["apiKey", "authDomain", "projectId", "appId"];
 

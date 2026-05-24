@@ -36,6 +36,46 @@ body {
   overflow-x: hidden;
 }
 
+html,
+body {
+  scrollbar-color: rgba(28, 176, 246, 0.86) rgba(28, 176, 246, 0.08);
+  scrollbar-width: thin;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 8px;
+}
+
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track {
+  background: rgba(28, 176, 246, 0.08);
+}
+
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb {
+  border: 2px solid var(--page-bg);
+  border-radius: 999px;
+  background: var(--blue);
+}
+
+html::-webkit-scrollbar-thumb:hover,
+body::-webkit-scrollbar-thumb:hover {
+  background: #1498d7;
+}
+
+html::-webkit-scrollbar-button,
+body::-webkit-scrollbar-button {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+html::-webkit-scrollbar-corner,
+body::-webkit-scrollbar-corner {
+  background: var(--page-bg);
+}
+
 button,
 input,
 select,
@@ -1002,13 +1042,22 @@ a {
 
 .row-main strong {
   display: block;
+  min-width: 0;
   color: #05050d;
   font-size: 16px;
   font-weight: 900;
 }
 
+.row-main {
+  min-width: 0;
+}
+
 .row-title-link {
+  display: inline;
   color: inherit;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  white-space: normal;
   transition: color 0.16s ease;
 }
 
@@ -1117,6 +1166,10 @@ a {
   border-color: rgba(88, 204, 2, 0.22);
   background: rgba(246, 255, 240, 0.96);
   color: var(--green-hover);
+}
+
+.lesson-timer__compact {
+  display: none;
 }
 
 .row-action {
@@ -3803,8 +3856,13 @@ body.modal-open {
   stroke: rgba(88, 204, 2, 0.9);
   stroke-linejoin: round;
   stroke-width: 4.4;
+  opacity: 0;
+  transform: scale(0.08);
   transform-box: fill-box;
   transform-origin: center;
+}
+
+.chart-anim.is-visible .spider-value-area {
   animation: spiderWebGrow 0.55s ease both;
 }
 
@@ -3813,6 +3871,15 @@ body.modal-open {
   stroke: #fff;
   stroke-width: 3;
   filter: drop-shadow(0 3px 5px rgba(16, 15, 62, 0.18));
+  opacity: 0;
+  transform: scale(0.2);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.chart-anim.is-visible .spider-marker {
+  animation: chartMarkerPop 0.36s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: 0.34s;
 }
 
 .profile-chart-grid {
@@ -3831,13 +3898,33 @@ body.modal-open {
   background: linear-gradient(180deg, rgba(88, 204, 2, 0.055), #fff 58%);
 }
 
+.profile-card--pie-chart {
+  position: relative;
+  z-index: 2;
+  overflow: visible;
+}
+
+.profile-card--pie-chart:hover,
+.profile-card--pie-chart:focus-within {
+  z-index: 8;
+}
+
 .profile-card--combo-chart {
+  position: relative;
+  z-index: 1;
+  overflow: visible;
   background: linear-gradient(180deg, rgba(28, 176, 246, 0.06), #fff 58%);
+}
+
+.profile-card--combo-chart:hover,
+.profile-card--combo-chart:focus-within {
+  z-index: 7;
 }
 
 .skill-chart-canvas {
   flex: 1;
   min-height: 0;
+  overflow: visible;
 }
 
 .skill-chart-block {
@@ -3847,12 +3934,29 @@ body.modal-open {
   height: 100%;
 }
 
+.skill-chart-block--pie {
+  display: grid;
+  place-items: center;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto;
+  padding: 2px 0 16px;
+}
+
 .skill-chart-svg {
   display: block;
   width: 100%;
   height: 100%;
   min-height: 0;
   overflow: visible;
+}
+
+.skill-chart-block--pie .skill-chart-svg {
+  width: min(292px, 100%);
+  height: auto;
+  aspect-ratio: 1;
 }
 
 .combo-grid-line {
@@ -3868,8 +3972,16 @@ body.modal-open {
 
 .combo-bar-fill {
   fill: var(--skill-color);
-  opacity: 0.78;
+  opacity: 0.28;
+  transform: scaleY(0.04);
+  transform-box: fill-box;
+  transform-origin: center bottom;
   transition: filter 0.16s ease, opacity 0.16s ease;
+}
+
+.chart-anim.is-visible .combo-bar-fill {
+  animation: comboBarGrow 0.58s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--bar-delay, 0s);
 }
 
 .combo-bar-fill.is-empty {
@@ -3883,14 +3995,28 @@ body.modal-open {
   stroke-linejoin: round;
   stroke-width: 3.4;
   filter: drop-shadow(0 3px 7px rgba(16, 15, 62, 0.16));
+  stroke-dasharray: 720;
+  stroke-dashoffset: 720;
   pointer-events: none;
+}
+
+.chart-anim.is-visible .combo-line {
+  animation: chartLineDraw 0.78s ease-out 0.34s both;
 }
 
 .combo-line-dot {
   fill: #fff;
   stroke: var(--dark-blue);
   stroke-width: 3;
+  opacity: 0;
+  transform: scale(0.2);
+  transform-box: fill-box;
+  transform-origin: center;
   pointer-events: none;
+}
+
+.chart-anim.is-visible .combo-line-dot {
+  animation: chartMarkerPop 0.34s cubic-bezier(0.16, 1, 0.3, 1) 0.72s both;
 }
 
 .combo-x-label {
@@ -3901,6 +4027,11 @@ body.modal-open {
 }
 
 .combo-hit-zone {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.combo-tooltip-hit-zone {
   fill: transparent;
   cursor: pointer;
 }
@@ -3920,58 +4051,64 @@ body.modal-open {
   outline: none;
 }
 
+.combo-tooltip-group:focus-visible {
+  outline: none;
+}
+
+.pie-empty-ring {
+  fill: rgba(229, 229, 229, 0.22);
+  stroke: rgba(175, 175, 175, 0.34);
+  stroke-dasharray: 5 8;
+  stroke-width: 2;
+  pointer-events: none;
+}
+
 .pie-slice {
   fill: var(--skill-color);
-  opacity: 0.82;
+  opacity: 0;
   stroke: #fff;
   stroke-linejoin: round;
-  stroke-width: 4;
+  stroke-width: 3;
   cursor: pointer;
-  transition: filter 0.16s ease, opacity 0.16s ease, stroke-width 0.16s ease;
+  filter: drop-shadow(0 7px 14px rgba(16, 15, 62, 0.07));
+  transform: scale(0.72);
   transform-box: fill-box;
   transform-origin: center;
+  transition: filter 0.14s ease, opacity 0.14s ease, stroke-width 0.14s ease;
+}
+
+.chart-anim.is-visible .pie-slice {
+  animation: pieSliceReveal 0.46s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--slice-delay, 0s);
+}
+
+.pie-slice-group {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.14s ease;
 }
 
 .pie-slice-group:hover .pie-slice,
 .pie-slice-group:focus-visible .pie-slice {
-  filter: saturate(1.1) drop-shadow(0 4px 8px rgba(16, 15, 62, 0.13));
+  filter: saturate(1.08) drop-shadow(0 3px 7px rgba(16, 15, 62, 0.15));
   opacity: 1;
-  stroke-width: 5;
+  stroke-width: 4;
+}
+
+.pie-slice-group:hover,
+.pie-slice-group:focus-visible {
+  transform: translate(var(--slice-offset-x), var(--slice-offset-y));
 }
 
 .pie-slice-group:focus-visible {
   outline: none;
 }
 
-.pie-center {
-  fill: #fff;
-  stroke: rgba(229, 229, 229, 0.9);
-  stroke-width: 2;
-  pointer-events: none;
-}
-
-.pie-empty-ring {
-  fill: none;
-  stroke: rgba(229, 229, 229, 0.8);
-  stroke-dasharray: 5 8;
-  stroke-width: 2.5;
-  pointer-events: none;
-}
-
-.pie-center-title {
+.pie-empty-text {
   fill: var(--dark-blue);
   font-family: var(--font);
   font-size: 14px;
   font-weight: 900;
-  pointer-events: none;
-}
-
-.pie-center-subtitle {
-  fill: var(--gray-light);
-  font-family: var(--font);
-  font-size: 10px;
-  font-weight: 900;
-  text-transform: uppercase;
   pointer-events: none;
 }
 
@@ -3983,6 +4120,8 @@ body.modal-open {
 
 .combo-skill-group:hover .chart-tooltip,
 .combo-skill-group:focus-visible .chart-tooltip,
+.combo-tooltip-group:hover .chart-tooltip,
+.combo-tooltip-group:focus-visible .chart-tooltip,
 .pie-slice-group:hover .chart-tooltip,
 .pie-slice-group:focus-visible .chart-tooltip {
   opacity: 1;
@@ -3994,9 +4133,39 @@ body.modal-open {
   filter: drop-shadow(0 6px 14px rgba(16, 15, 62, 0.14));
 }
 
+.chart-tooltip--pie rect,
+.chart-tooltip--combo rect {
+  fill: #fff;
+  fill-opacity: 1;
+  stroke: rgba(229, 229, 229, 0.92);
+  stroke-width: 1;
+  filter: drop-shadow(0 10px 22px rgba(16, 15, 62, 0.16));
+}
+
+.chart-tooltip--combo rect {
+  filter: drop-shadow(0 5px 12px rgba(16, 15, 62, 0.12));
+}
+
+.chart-tooltip--pie .chart-tooltip-arrow,
+.chart-tooltip--combo .chart-tooltip-arrow {
+  fill: #fff;
+  stroke: rgba(229, 229, 229, 0.92);
+  stroke-linejoin: round;
+  stroke-width: 1;
+}
+
+.chart-tooltip-color {
+  fill: var(--skill-color);
+}
+
 .chart-tooltip text {
   fill: #fff;
   font-family: var(--font);
+}
+
+.chart-tooltip--pie text,
+.chart-tooltip--combo text {
+  fill: var(--dark-blue);
 }
 
 .chart-tooltip-title {
@@ -4010,6 +4179,22 @@ body.modal-open {
   opacity: 0.78;
 }
 
+.chart-tooltip--pie .chart-tooltip-line,
+.chart-tooltip--combo .chart-tooltip-line {
+  fill: var(--dark-blue);
+  font-size: 11px;
+  font-weight: 900;
+  opacity: 1;
+}
+
+.chart-tooltip--pie .chart-tooltip-line--muted,
+.chart-tooltip--combo .chart-tooltip-line--muted {
+  fill: var(--gray-light);
+  font-size: 10px;
+  font-weight: 800;
+  opacity: 0.9;
+}
+
 @keyframes spiderWebGrow {
   from {
     opacity: 0;
@@ -4017,6 +4202,45 @@ body.modal-open {
   }
   to {
     opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes comboBarGrow {
+  from {
+    opacity: 0.28;
+    transform: scaleY(0.04);
+  }
+  to {
+    opacity: 0.78;
+    transform: scaleY(1);
+  }
+}
+
+@keyframes chartLineDraw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes chartMarkerPop {
+  from {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pieSliceReveal {
+  from {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+  to {
+    opacity: 0.96;
     transform: scale(1);
   }
 }
@@ -4250,6 +4474,14 @@ body.modal-open {
     min-height: 320px;
   }
 
+  .skill-chart-block--pie {
+    padding: 2px 0 12px;
+  }
+
+  .skill-chart-block--pie .skill-chart-svg {
+    width: min(228px, 72vw);
+  }
+
   .course-card {
     min-height: auto;
     padding: 12px;
@@ -4323,6 +4555,26 @@ body.modal-open {
 
   .timeline-index {
     margin-left: -12px;
+  }
+
+  .vocab-section .timeline-row {
+    align-items: start;
+    min-height: auto;
+  }
+
+  .vocab-section .row-main {
+    display: block;
+    min-width: 0;
+    padding-top: 1px;
+  }
+
+  .vocab-section .row-main strong,
+  .vocab-section .row-title-link {
+    display: block;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: normal;
   }
 
   .row-title-link,
@@ -4435,7 +4687,7 @@ body.modal-open {
   }
 
   .lesson-video-frame {
-    margin: 20px -16px;
+    margin: 20px -16px 0;
     border-radius: 0;
     width: calc(100% + 32px);
     aspect-ratio: 16/9;
@@ -4443,15 +4695,36 @@ body.modal-open {
   }
 
   .lesson-timer {
+    position: static;
+    align-self: flex-end;
     justify-content: center;
-    left: 50%;
-    right: auto;
-    bottom: 12px;
-    max-width: calc(100% - 24px);
-    transform: translateX(-50%);
+    gap: 5px;
+    max-width: 168px;
+    min-height: 28px;
+    margin: 8px 0 0 auto;
+    padding: 5px 9px;
+    border-radius: 999px;
+    transform: none;
     width: fit-content;
-    white-space: normal;
-    text-align: center;
+    white-space: nowrap;
+    text-align: right;
+    font-size: 11px;
+    line-height: 1.2;
+    box-shadow: 0 6px 14px rgba(16, 15, 62, 0.1);
+  }
+
+  .lesson-timer svg {
+    width: 12px;
+    height: 12px;
+    flex: 0 0 12px;
+  }
+
+  .lesson-timer__full {
+    display: none;
+  }
+
+  .lesson-timer__compact {
+    display: inline;
   }
 
   .lesson-doc-card {
@@ -5477,4 +5750,74 @@ body.modal-open {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* --- Loading Skeletons --- */
+@keyframes skeletonShimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #e8e8f0 25%, #f4f4f8 37%, #e8e8f0 63%);
+  background-size: 800px 100%;
+  animation: skeletonShimmer 1.6s ease-in-out infinite;
+  border-radius: 12px;
+}
+
+.skeleton-card {
+  background: #fff;
+  border: 2px solid var(--border-color);
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 4px 0 var(--border-color);
+}
+
+.skeleton-line {
+  height: 14px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #e8e8f0 25%, #f4f4f8 37%, #e8e8f0 63%);
+  background-size: 800px 100%;
+  animation: skeletonShimmer 1.6s ease-in-out infinite;
+  margin-bottom: 12px;
+}
+
+.skeleton-line--title {
+  height: 20px;
+  width: 60%;
+  margin-bottom: 16px;
+}
+
+.skeleton-line--short {
+  width: 40%;
+}
+
+.skeleton-line--medium {
+  width: 70%;
+}
+
+.skeleton-thumb {
+  width: 100%;
+  aspect-ratio: 16/9;
+  border-radius: 16px;
+  background: linear-gradient(90deg, #e8e8f0 25%, #f4f4f8 37%, #e8e8f0 63%);
+  background-size: 800px 100%;
+  animation: skeletonShimmer 1.6s ease-in-out infinite;
+  margin-bottom: 16px;
+}
+
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 24px;
+}
+
+.course-grid:empty .skeleton-card,
+.skeleton-card {
+  opacity: 1;
+  transition: opacity 0.3s ease;
+}
+
+.course-grid:not(:empty) .skeleton-placeholder {
+  display: none;
 }

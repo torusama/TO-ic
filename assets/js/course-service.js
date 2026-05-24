@@ -4,15 +4,15 @@ import {
   doc,
   getDoc,
   getDocs,
-} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+} from "firebase/firestore";
 import { hasCourseAccess } from "./access-control.js";
 import { getValidSignedInUser } from "./auth-session.js";
 
-export async function loadCourseSummaries() {
+export async function loadCourseSummaries(prevalidatedUser = null) {
   if (!db) return [];
 
   try {
-    const user = await getValidSignedInUser();
+    const user = prevalidatedUser || await getValidSignedInUser();
     if (!user) return [];
     if (!hasCourseAccess(user)) return [];
 
@@ -22,46 +22,18 @@ export async function loadCourseSummaries() {
       .filter((course) => course.published !== false)
       .sort(sortByOrderThenTitle);
 
-    return await Promise.all(courses.map(hydrateCourseSummaryCounts));
+    return courses;
   } catch (error) {
     console.warn("Could not load Firestore course summaries:", error);
     return [];
   }
 }
 
-async function hydrateCourseSummaryCounts(course) {
-  try {
-    const lessonsSnap = await getDocs(collection(db, "courses", course.id, "lessons"));
-    const totals = lessonsSnap.docs.reduce(
-      (counts, docSnap) => {
-        const lesson = docSnap.data();
-        if (lesson.published === false) return counts;
-        if (lesson.isExercise) {
-          counts.exams += 1;
-        } else {
-          counts.lectures += 1;
-        }
-        return counts;
-      },
-      { lectures: 0, exams: 0 }
-    );
-
-    return {
-      ...course,
-      lectures: totals.lectures,
-      exams: totals.exams,
-    };
-  } catch (error) {
-    console.warn(`Could not load lesson counts for course ${course.id}:`, error);
-    return course;
-  }
-}
-
-export async function loadCourseWithLessons(courseId) {
+export async function loadCourseWithLessons(courseId, prevalidatedUser = null) {
   if (!db) return null;
 
   try {
-    const user = await getValidSignedInUser();
+    const user = prevalidatedUser || await getValidSignedInUser();
     if (!user) return null;
     if (!hasCourseAccess(user)) return null;
 

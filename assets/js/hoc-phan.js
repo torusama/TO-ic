@@ -8,7 +8,7 @@ import { renderCourseUnavailable, requireCourseAccess } from "./access-control.j
     return;
   }
 
-  const courses = await loadCourseSummaries();
+  const courses = await loadCourseSummaries(access.user);
   const panels = document.querySelector("#course-panels");
 
   if (!courses.length) {

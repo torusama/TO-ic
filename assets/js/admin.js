@@ -1,6 +1,6 @@
 import { auth, db } from "./firebase-app.js";
-import { collection, doc, getDoc, getDocs, setDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
-import { getIdToken } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+import { collection, doc, getDoc, getDocs, setDoc, writeBatch } from "firebase/firestore";
+import { getIdToken } from "firebase/auth";
 import { requireAdminAccess, renderCourseUnavailable } from "./access-control.js";
 
 const formCourse = document.getElementById("form-course");

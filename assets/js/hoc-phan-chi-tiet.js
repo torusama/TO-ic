@@ -12,7 +12,7 @@ import { renderCourseUnavailable, requireCourseAccess } from "./access-control.j
   const params = new URLSearchParams(window.location.search);
   const courseId = params.get("course");
   const linkedLessonId = params.get("lesson");
-  const course = await loadCourseWithLessons(courseId);
+  const course = await loadCourseWithLessons(courseId, access.user);
   const breadcrumb = document.querySelector("#course-breadcrumb");
   const detail = document.querySelector("#course-detail");
   let completedLessons = new Set();

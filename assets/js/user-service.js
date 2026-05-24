@@ -7,7 +7,7 @@ import {
 import {
   GoogleAuthProvider,
   signInWithPopup,
-} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+} from "firebase/auth";
 import {
   collection,
   deleteDoc,
@@ -24,7 +24,7 @@ import {
   writeBatch,
   orderBy,
   where,
-} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+} from "firebase/firestore";
 
 const defaultStats = { streak: 0, lessons: 0 };
 const defaultLearning = { recentCourse: "None yet", recentLesson: "None yet" };
@@ -903,7 +903,7 @@ export async function saveTimerProgress(uid, lessonKey, progress) {
 export async function clearTimerProgress(uid, lessonKey) {
   if (!db || !uid || !lessonKey) return;
   try {
-    const { deleteDoc } = await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js");
+    // deleteDoc is already imported at the top of this file
     await deleteDoc(doc(db, "users", uid, "timerProgress", lessonKey));
   } catch (_) {}
 }
@@ -917,6 +917,8 @@ export function normalizeProfile(user, stored = {}) {
     stats,
     learning: { ...defaultLearning, ...(stored.learning || {}) },
     emailPreferences: normalizeEmailPreferences(stored.emailPreferences),
+    notificationsSeeded: Boolean(stored.notificationsSeeded),
+    notificationsVersion: stored.notificationsVersion || "",
   };
 }
 

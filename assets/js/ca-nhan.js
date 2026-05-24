@@ -28,6 +28,7 @@ import {
   updateEmailPreferences,
   updateUserProfile,
 } from "./user-service.js";
+import { hasAdminAccess } from "./access-control.js";
 import { loadCourseWithLessons } from "./course-service.js";
 import { rollStreakNumber, setStreakNumber } from "./streak-animation.js";
 
@@ -78,6 +79,13 @@ const maxAvatarUploadBytes = 5 * 1024 * 1024;
 const avatarOutputSize = 240;
 const maxAvatarDataUrlLength = 650000;
 const acceptedAvatarTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+const adminChartDemoData = {
+  Listening: { completed: 12, total: 16 },
+  Reading: { completed: 8, total: 14 },
+  Speaking: { completed: 5, total: 10 },
+  Writing: { completed: 7, total: 12 },
+  Practice: { completed: 4, total: 8 },
+};
 
 let activeUser = null;
 let activeProfile = normalizeProfile(null, {});
@@ -98,6 +106,17 @@ let activeConnectionTab = "followers";
 let isGuestMode = false;
 let guestUid = null;
 const checkedProfileAnimations = new Set();
+let renderProfilePending = false;
+let chartRevealObserver = null;
+
+function scheduleRenderProfile() {
+  if (renderProfilePending) return;
+  renderProfilePending = true;
+  requestAnimationFrame(() => {
+    renderProfilePending = false;
+    renderProfile();
+  });
+}
 
 setAuthState("signed-out");
 
@@ -174,19 +193,12 @@ if (!hasFirebaseConfig) {
     renderProfile();
 
     try {
-      activeProfile = await ensureUserProfile(user);
-      await ensureDefaultNotifications(user);
-      renderProfile();
-      loadProfileCourseData().then(() => {
-        if (loadVersion === courseDataVersion) renderProfile();
-      });
-
       unsubscribers = [
         listenUserProfile(
           user.uid,
           (profile) => {
             if (profile) activeProfile = profile;
-            renderProfile();
+            scheduleRenderProfile();
           },
           (error) => console.warn("Could not listen to profile:", error)
         ),
@@ -194,7 +206,7 @@ if (!hasFirebaseConfig) {
           user.uid,
           (items) => {
             activeNotifications = items;
-            renderProfile();
+            scheduleRenderProfile();
           },
           (error) => console.warn("Could not listen to notifications:", error)
         ),
@@ -202,24 +214,24 @@ if (!hasFirebaseConfig) {
           user.uid,
           (items) => {
             activeActivities = items;
-            renderProfile();
+            scheduleRenderProfile();
           },
           (error) => {
             console.warn("Could not listen to learning activity:", error);
             activeActivities = [];
-            renderProfile();
+            scheduleRenderProfile();
           }
         ),
         listenCompletedLessons(
           user.uid,
           (lessonIds) => {
             activeCompletedLessons = lessonIds;
-            renderProfile();
+            scheduleRenderProfile();
           },
           (error) => {
             console.warn("Could not listen to completed lessons:", error);
             activeCompletedLessons = new Set();
-            renderProfile();
+            scheduleRenderProfile();
           }
         ),
         listenFollowingProfiles(
@@ -227,7 +239,7 @@ if (!hasFirebaseConfig) {
           (followingProfiles) => {
             activeFollowingProfiles = followingProfiles;
             activeFollowing = new Set(followingProfiles.map((profile) => profile.uid));
-            renderProfile();
+            scheduleRenderProfile();
             renderFriendLists();
             renderConnectionsModal();
           },
@@ -237,12 +249,28 @@ if (!hasFirebaseConfig) {
           user.uid,
           (followers) => {
             activeFollowers = followers;
-            renderProfile();
+            scheduleRenderProfile();
             renderConnectionsModal();
           },
           (error) => console.warn("Could not listen to followers:", error)
         ),
       ];
+
+      loadProfileCourseData(user).then(() => {
+        if (loadVersion === courseDataVersion) scheduleRenderProfile();
+      });
+
+      ensureUserProfile(user).then((profile) => {
+        if (profile) {
+          activeProfile = profile;
+          scheduleRenderProfile();
+          ensureDefaultNotifications(user, profile).catch((err) => {
+            console.warn("Could not ensure default notifications:", err);
+          });
+        }
+      }).catch((error) => {
+        console.warn("Could not initialize profile database:", error);
+      });
     } catch (error) {
       console.warn("Could not sync Firestore; showing Google profile data instead:", error);
     }
@@ -1092,6 +1120,7 @@ function renderProfile() {
 
   renderLearningMap();
   renderSkillChartPanels();
+  setupChartRevealAnimations();
   renderEmailSettings();
 
   document.documentElement.classList.remove("is-guest-view-init");
@@ -1127,10 +1156,10 @@ async function renderProfileStreak() {
   }
 }
 
-async function loadProfileCourseData() {
+async function loadProfileCourseData(user = activeUser) {
   const courses = await Promise.all([
-    loadCourseWithLessons("nghe-doc"),
-    loadCourseWithLessons("noi-viet"),
+    loadCourseWithLessons("nghe-doc", user),
+    loadCourseWithLessons("noi-viet", user),
   ]);
 
   activeCoursesById = new Map(courses.filter(Boolean).map((course) => [course.id, course]));
@@ -1246,16 +1275,42 @@ function setEmailSettingsSaving(isSaving, message) {
 function renderLearningMap() {
   if (!learningMap) return;
 
-  const items = getLearningMapItems().map(normalizeMapItem);
+  const items = getVisibleLearningMapItems();
   learningMap.innerHTML = renderSpiderMap(items);
 }
 
 function renderSkillChartPanels() {
   if (!skillComboChart || !skillPieChart) return;
 
-  const items = getCoreSkillItems(getLearningMapItems().map(normalizeMapItem));
+  const items = getSkillChartItems();
   skillComboChart.innerHTML = renderComboChart(items);
   skillPieChart.innerHTML = renderPieChart(items);
+}
+
+function getSkillChartItems() {
+  const items = getCoreSkillItems(getVisibleLearningMapItems());
+  return items;
+}
+
+function getVisibleLearningMapItems() {
+  const items = getLearningMapItems().map(normalizeMapItem);
+  if (!shouldUseAdminChartDemoData()) return items;
+
+  return items.map((item) => {
+    const demo = adminChartDemoData[item.title];
+    if (!demo) return item;
+    const total = Math.max(Number(item.total || 0), demo.total);
+    const completed = Math.min(demo.completed, total);
+    return normalizeMapItem({
+      ...item,
+      completed,
+      total,
+    });
+  });
+}
+
+function shouldUseAdminChartDemoData() {
+  return !isGuestMode && hasAdminAccess(activeUser);
 }
 
 function renderSpiderMap(items) {
@@ -1291,7 +1346,7 @@ function renderSpiderMap(items) {
     .join("");
 
   return `
-    <div class="spider-map-shell">
+    <div class="spider-map-shell chart-anim">
       <div class="spider-chart-wrap">
         <svg class="spider-chart" viewBox="0 0 ${size} ${size}" role="img" aria-label="Skill progress radar chart">
           <g class="spider-grid">${grid}</g>
@@ -1334,7 +1389,8 @@ function renderComboChart(items) {
       return `${Number(x.toFixed(2))},${Number(y.toFixed(2))}`;
     })
     .join(" ");
-  const groups = items.map((item, index) => renderComboSkillGroup(item, index, { left, top, baseY, chartHeight, step, barWidth, width })).join("");
+  const chart = { left, top, baseY, chartHeight, step, barWidth, width };
+  const groups = items.map((item, index) => renderComboSkillGroup(item, index, chart)).join("");
   const markers = items
     .map((item, index) => {
       const x = left + index * step + step / 2;
@@ -1342,17 +1398,57 @@ function renderComboChart(items) {
       return `<circle class="combo-line-dot" cx="${Number(x.toFixed(2))}" cy="${Number(y.toFixed(2))}" r="4"></circle>`;
     })
     .join("");
+  const tooltips = items.map((item, index) => renderComboTooltipGroup(item, index, chart)).join("");
 
   return `
-    <div class="skill-chart-block skill-chart-block--combo" aria-label="Skill progress chart">
+    <div class="skill-chart-block skill-chart-block--combo chart-anim" aria-label="Skill progress chart">
       <svg class="skill-chart-svg combo-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Completed lessons by skill">
         <g>${grid}</g>
         <g>${groups}</g>
         <polyline class="combo-line" points="${points}"></polyline>
         <g>${markers}</g>
+        <g class="combo-tooltip-layer">${tooltips}</g>
       </svg>
     </div>
   `;
+}
+
+function setupChartRevealAnimations() {
+  const charts = Array.from(document.querySelectorAll(".chart-anim"));
+  if (!charts.length) return;
+
+  charts.forEach((chart) => {
+    chart.classList.remove("is-visible");
+    chart.removeAttribute("data-chart-revealed");
+  });
+
+  if (!("IntersectionObserver" in window)) {
+    requestAnimationFrame(() => {
+      charts.forEach((chart) => {
+        chart.dataset.chartRevealed = "true";
+        chart.classList.add("is-visible");
+      });
+    });
+    return;
+  }
+
+  chartRevealObserver?.disconnect();
+  chartRevealObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting || entry.target.dataset.chartRevealed) return;
+        entry.target.dataset.chartRevealed = "true";
+        entry.target.classList.add("is-visible");
+        chartRevealObserver.unobserve(entry.target);
+      });
+    },
+    {
+      threshold: 0.32,
+      rootMargin: "0px 0px -12% 0px",
+    }
+  );
+
+  charts.forEach((chart) => chartRevealObserver.observe(chart));
 }
 
 function renderComboSkillGroup(item, index, chart) {
@@ -1363,18 +1459,53 @@ function renderComboSkillGroup(item, index, chart) {
   const visibleBarHeight = percent > 0 ? barHeight : 3;
   const barY = chart.baseY - visibleBarHeight;
   const hitX = chart.left + index * chart.step;
-  const tooltipWidth = 142;
-  const tooltipHeight = 58;
-  const tooltipX = clamp(xCenter - tooltipWidth / 2, 6, chart.width - tooltipWidth - 6);
-  const tooltipY = Math.max(6, barY - tooltipHeight - 8);
 
   return `
     <g class="combo-skill-group" tabindex="0">
       <rect class="combo-hit-zone" x="${Number(hitX.toFixed(2))}" y="${chart.top}" width="${Number(chart.step.toFixed(2))}" height="${chart.chartHeight + 30}"></rect>
       <rect class="combo-track" x="${Number(barX.toFixed(2))}" y="${chart.top}" width="${Number(chart.barWidth.toFixed(2))}" height="${chart.chartHeight}" rx="10"></rect>
-      <rect class="combo-bar-fill ${percent === 0 ? "is-empty" : ""}" x="${Number(barX.toFixed(2))}" y="${Number(barY.toFixed(2))}" width="${Number(chart.barWidth.toFixed(2))}" height="${Number(visibleBarHeight.toFixed(2))}" rx="10" style="--skill-color: ${escapeHtml(item.color)}"></rect>
+      <rect class="combo-bar-fill ${percent === 0 ? "is-empty" : ""}" x="${Number(barX.toFixed(2))}" y="${Number(barY.toFixed(2))}" width="${Number(chart.barWidth.toFixed(2))}" height="${Number(visibleBarHeight.toFixed(2))}" rx="10" style="--skill-color: ${escapeHtml(item.color)}; --bar-delay: ${Number((index * 0.06).toFixed(2))}s;"></rect>
       <text class="combo-x-label" x="${Number(xCenter.toFixed(2))}" y="${chart.baseY + 28}" text-anchor="middle">${escapeHtml(getShortSkillLabel(item.title))}</text>
-      ${renderChartTooltip(item, tooltipX, tooltipY, tooltipWidth, tooltipHeight)}
+    </g>
+  `;
+}
+
+function renderComboTooltipGroup(item, index, chart) {
+  const percent = clamp(item.percent, 0, 100);
+  const xCenter = chart.left + index * chart.step + chart.step / 2;
+  const hitX = chart.left + index * chart.step;
+  const pointY = chart.baseY - chart.chartHeight * (percent / 100);
+  const tooltipWidth = 122;
+  const tooltipHeight = 60;
+  const tooltipX = clamp(xCenter - tooltipWidth / 2, 6, chart.width - tooltipWidth - 6);
+  const tooltipY = pointY > chart.top + 54 ? pointY - tooltipHeight - 12 : pointY + 12;
+  const tooltipArrowX = clamp(xCenter - tooltipX, 14, tooltipWidth - 14);
+  const arrowSide = pointY > chart.top + 54 ? "bottom" : "top";
+
+  return `
+    <g class="combo-tooltip-group" tabindex="0" aria-label="${escapeHtml(item.title)} ${item.status}">
+      <rect class="combo-tooltip-hit-zone" x="${Number(hitX.toFixed(2))}" y="${chart.top}" width="${Number(chart.step.toFixed(2))}" height="${chart.chartHeight + 30}"></rect>
+      ${renderComboTooltip(item, tooltipX, tooltipY, tooltipWidth, tooltipHeight, tooltipArrowX, arrowSide)}
+    </g>
+  `;
+}
+
+function renderComboTooltip(item, x, y, width, height, arrowX, arrowSide = "bottom") {
+  const totalLine = item.total ? `${item.completed}/${item.total} completed` : "No lessons yet";
+  const detailLine = item.total ? `${item.total} tracked lessons` : "Waiting for data";
+  const arrowHalf = 7;
+  const arrowHeight = 9;
+  const arrowPoints =
+    arrowSide === "top"
+      ? `${Number((arrowX - arrowHalf).toFixed(2))},0 ${Number(arrowX.toFixed(2))},-${arrowHeight} ${Number((arrowX + arrowHalf).toFixed(2))},0`
+      : `${Number((arrowX - arrowHalf).toFixed(2))},${height} ${Number(arrowX.toFixed(2))},${height + arrowHeight} ${Number((arrowX + arrowHalf).toFixed(2))},${height}`;
+  return `
+    <g class="chart-tooltip chart-tooltip--combo" transform="translate(${Number(x.toFixed(2))} ${Number(y.toFixed(2))})">
+      <polygon class="chart-tooltip-arrow" points="${arrowPoints}"></polygon>
+      <rect width="${width}" height="${height}" rx="8"></rect>
+      <text class="chart-tooltip-title" x="${width / 2}" y="19" text-anchor="middle">${escapeHtml(item.title)}</text>
+      <text class="chart-tooltip-line" x="${width / 2}" y="39" text-anchor="middle">${escapeHtml(totalLine)}</text>
+      <text class="chart-tooltip-line chart-tooltip-line--muted" x="${width / 2}" y="53" text-anchor="middle">${escapeHtml(detailLine)}</text>
     </g>
   `;
 }
@@ -1383,13 +1514,13 @@ function renderPieChart(items) {
   const width = 260;
   const height = 260;
   const center = 130;
-  const radius = 100;
+  const radius = 94;
   const totalCompleted = items.reduce((sum, item) => sum + item.completed, 0);
+  const activeItems = items.filter((item) => item.completed > 0);
   let currentAngle = 0;
   const slices = totalCompleted
-    ? items
-        .map((item) => {
-          if (!item.completed) return "";
+    ? activeItems
+        .map((item, index) => {
           const sliceSize = (item.completed / totalCompleted) * 360;
           const startAngle = currentAngle;
           const endAngle = currentAngle + sliceSize;
@@ -1397,36 +1528,130 @@ function renderPieChart(items) {
           const share = Math.round((item.completed / totalCompleted) * 100);
           const tooltipItem = {
             ...item,
-            tooltipDetail: `${share}% of completed work`,
-            tooltipMeta: `${item.completed} completed lessons`,
+            tooltipDetail: `${item.completed} (${share}%)`,
+            tooltipMeta: "completed lessons",
           };
+          const sliceMarkup =
+            sliceSize >= 359.99
+              ? `<circle class="pie-slice" cx="${center}" cy="${center}" r="${radius}" style="--skill-color: ${escapeHtml(item.color)}; --slice-delay: ${Number((index * 0.08).toFixed(2))}s;"></circle>`
+              : `<path class="pie-slice" d="${getPieSlicePath(center, center, radius, startAngle, endAngle)}" style="--skill-color: ${escapeHtml(item.color)}; --slice-delay: ${Number((index * 0.08).toFixed(2))}s;"></path>`;
+          const midAngle = startAngle + sliceSize / 2;
+          const tooltip = getPieTooltipPosition(center, center, radius, midAngle, width, height);
+          const hoverOffset = getPolarPoint(0, 0, 4, midAngle);
           return `
-            <g class="pie-slice-group" tabindex="0">
-              <path class="pie-slice" d="${getPieSlicePath(center, center, radius, startAngle, endAngle)}" style="--skill-color: ${escapeHtml(item.color)}">
-                <title>${escapeHtml(item.title)} ${share}% of completed work</title>
-              </path>
-              ${renderChartTooltip(tooltipItem, 58, 184, 150, 58)}
+            <g class="pie-slice-group" tabindex="0" aria-label="${escapeHtml(item.title)} ${item.completed} (${share}%)" style="--slice-offset-x: ${hoverOffset.x}px; --slice-offset-y: ${hoverOffset.y}px;">
+              ${sliceMarkup}
+              ${renderPieTooltip(tooltipItem, tooltip.x, tooltip.y, tooltip.width, tooltip.height, tooltip.arrowPoints)}
             </g>
           `;
         })
         .join("")
     : "";
-  const centerContent = totalCompleted
-    ? `
-        <circle class="pie-center" cx="${center}" cy="${center}" r="38"></circle>
-        <text class="pie-center-title" x="${center}" y="${center - 2}" text-anchor="middle">TOEIC</text>
-        <text class="pie-center-subtitle" x="${center}" y="${center + 16}" text-anchor="middle">skills</text>
-      `
-    : `<circle class="pie-empty-ring" cx="${center}" cy="${center}" r="${radius}"></circle>`;
+  const emptyState = totalCompleted
+    ? ""
+    : `
+        <circle class="pie-empty-ring" cx="${center}" cy="${center}" r="${radius}"></circle>
+        <text class="pie-empty-text" x="${center}" y="${center}" text-anchor="middle" dominant-baseline="middle">No data</text>
+      `;
 
   return `
-    <div class="skill-chart-block skill-chart-block--pie" aria-label="Skill category chart">
+    <div class="skill-chart-block skill-chart-block--pie chart-anim" aria-label="Skill category chart">
       <svg class="skill-chart-svg pie-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Skill categories">
         <g class="pie-slices">${slices}</g>
-        ${centerContent}
+        ${emptyState}
       </svg>
     </div>
   `;
+}
+
+function renderPieTooltip(item, x, y, width, height, arrowPoints) {
+  const totalLine = item.tooltipDetail || (item.total ? `${item.completed}/${item.total}` : "No data");
+  const detailLine = item.tooltipMeta || "completed lessons";
+  return `
+    <g class="chart-tooltip chart-tooltip--pie" transform="translate(${Number(x.toFixed(2))} ${Number(y.toFixed(2))})">
+      <polygon class="chart-tooltip-arrow" points="${arrowPoints}"></polygon>
+      <rect width="${width}" height="${height}" rx="8"></rect>
+      <circle class="chart-tooltip-color" cx="15" cy="18" r="4" style="--skill-color: ${escapeHtml(item.color)}"></circle>
+      <text class="chart-tooltip-title" x="28" y="21">${escapeHtml(item.title)}</text>
+      <text class="chart-tooltip-line" x="28" y="42">${escapeHtml(totalLine)}</text>
+      <text class="chart-tooltip-line chart-tooltip-line--muted" x="28" y="56">${escapeHtml(detailLine)}</text>
+    </g>
+  `;
+}
+
+function getPieSlicePath(cx, cy, radius, startAngle, endAngle) {
+  const start = getPolarPoint(cx, cy, radius, startAngle);
+  const end = getPolarPoint(cx, cy, radius, endAngle);
+  const largeArcFlag = endAngle - startAngle > 180 ? 1 : 0;
+  return `M ${cx} ${cy} L ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${end.x} ${end.y} Z`;
+}
+
+function getPieTooltipPosition(cx, cy, radius, angle, width, height) {
+  const tooltipWidth = 148;
+  const tooltipHeight = 64;
+  const gap = 16;
+  const normalizedAngle = ((angle % 360) + 360) % 360;
+  const point = getPolarPoint(cx, cy, radius, normalizedAngle);
+  const arrowSize = 10;
+  const arrowHalf = 7;
+
+  if (normalizedAngle >= 45 && normalizedAngle < 135) {
+    const x = cx + radius + gap;
+    const y = clamp(point.y - tooltipHeight / 2, 4, height - tooltipHeight - 4);
+    const arrowY = clamp(point.y - y, arrowHalf + 8, tooltipHeight - arrowHalf - 8);
+    return {
+      x,
+      y,
+      width: tooltipWidth,
+      height: tooltipHeight,
+      arrowPoints: `0,${Number((arrowY - arrowHalf).toFixed(2))} -${arrowSize},${Number(arrowY.toFixed(2))} 0,${Number((arrowY + arrowHalf).toFixed(2))}`,
+    };
+  }
+
+  if (normalizedAngle >= 135 && normalizedAngle < 225) {
+    const x = clamp(point.x - tooltipWidth / 2, 4, width - tooltipWidth - 4);
+    const y = cy + radius + gap;
+    const arrowX = clamp(point.x - x, arrowHalf + 10, tooltipWidth - arrowHalf - 10);
+    return {
+      x,
+      y,
+      width: tooltipWidth,
+      height: tooltipHeight,
+      arrowPoints: `${Number((arrowX - arrowHalf).toFixed(2))},0 ${Number(arrowX.toFixed(2))},-${arrowSize} ${Number((arrowX + arrowHalf).toFixed(2))},0`,
+    };
+  }
+
+  if (normalizedAngle >= 225 && normalizedAngle < 315) {
+    const x = cx - radius - gap - tooltipWidth;
+    const y = clamp(point.y - tooltipHeight / 2, 4, height - tooltipHeight - 4);
+    const arrowY = clamp(point.y - y, arrowHalf + 8, tooltipHeight - arrowHalf - 8);
+    return {
+      x,
+      y,
+      width: tooltipWidth,
+      height: tooltipHeight,
+      arrowPoints: `${tooltipWidth},${Number((arrowY - arrowHalf).toFixed(2))} ${tooltipWidth + arrowSize},${Number(arrowY.toFixed(2))} ${tooltipWidth},${Number((arrowY + arrowHalf).toFixed(2))}`,
+    };
+  }
+
+  const x = clamp(point.x - tooltipWidth / 2, 4, width - tooltipWidth - 4);
+  const y = cy - radius - gap - tooltipHeight;
+  const arrowX = clamp(point.x - x, arrowHalf + 10, tooltipWidth - arrowHalf - 10);
+  return {
+    x,
+    y,
+    width: tooltipWidth,
+    height: tooltipHeight,
+    arrowPoints: `${Number((arrowX - arrowHalf).toFixed(2))},${tooltipHeight} ${Number(arrowX.toFixed(2))},${tooltipHeight + arrowSize} ${Number((arrowX + arrowHalf).toFixed(2))},${tooltipHeight}`,
+  };
+}
+
+function getPolarPoint(cx, cy, radius, angle) {
+  const radians = ((angle - 90) * Math.PI) / 180;
+  return {
+    x: Number((cx + radius * Math.cos(radians)).toFixed(2)),
+    y: Number((cy + radius * Math.sin(radians)).toFixed(2)),
+  };
 }
 
 function renderChartTooltip(item, x, y, width, height) {
@@ -1440,29 +1665,6 @@ function renderChartTooltip(item, x, y, width, height) {
       <text class="chart-tooltip-line" x="10" y="50">${escapeHtml(detailLine)}</text>
     </g>
   `;
-}
-
-function getPieSlicePath(cx, cy, radius, startAngle, endAngle) {
-  if (Math.abs(endAngle - startAngle) >= 360) {
-    return `
-      M ${cx} ${cy - radius}
-      A ${radius} ${radius} 0 1 1 ${cx - 0.01} ${cy - radius}
-      A ${radius} ${radius} 0 1 1 ${cx} ${cy - radius}
-      Z
-    `;
-  }
-  const start = getPolarPoint(cx, cy, radius, startAngle);
-  const end = getPolarPoint(cx, cy, radius, endAngle);
-  const largeArcFlag = endAngle - startAngle > 180 ? 1 : 0;
-  return `M ${cx} ${cy} L ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${end.x} ${end.y} Z`;
-}
-
-function getPolarPoint(cx, cy, radius, angle) {
-  const radians = ((angle - 90) * Math.PI) / 180;
-  return {
-    x: Number((cx + radius * Math.cos(radians)).toFixed(2)),
-    y: Number((cy + radius * Math.sin(radians)).toFixed(2)),
-  };
 }
 
 function getShortSkillLabel(title) {
