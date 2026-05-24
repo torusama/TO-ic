@@ -374,7 +374,7 @@ emailReminderIntensityButton?.addEventListener("click", () => {
 
 emailReminderIntensityOptions.forEach((option) => {
   option.addEventListener("click", () => {
-    const value = option.dataset.emailReminderIntensityOption || "dramatic";
+    const value = option.dataset.emailReminderIntensityOption || "normal";
     if (!activeUser || option.disabled || getEmailReminderIntensityValue() === value) {
       setEmailReminderIntensityOpen(false);
       return;
@@ -1176,16 +1176,16 @@ async function saveEmailSettings() {
 }
 
 function getEmailReminderIntensityValue() {
-  return emailReminderIntensity?.dataset.value || "dramatic";
+  return emailReminderIntensity?.dataset.value || "normal";
 }
 
 function setEmailReminderIntensityValue(value) {
-  const nextValue = ["gentle", "normal", "dramatic"].includes(value) ? value : "dramatic";
+  const nextValue = ["gentle", "normal", "dramatic"].includes(value) ? value : "normal";
   if (emailReminderIntensity) {
     emailReminderIntensity.dataset.value = nextValue;
   }
   if (emailReminderIntensityLabel) {
-    emailReminderIntensityLabel.textContent = EMAIL_REMINDER_INTENSITY_LABELS[nextValue] || EMAIL_REMINDER_INTENSITY_LABELS.dramatic;
+    emailReminderIntensityLabel.textContent = EMAIL_REMINDER_INTENSITY_LABELS[nextValue] || EMAIL_REMINDER_INTENSITY_LABELS.normal;
   }
   emailReminderIntensityOptions.forEach((option) => {
     const isSelected = option.dataset.emailReminderIntensityOption === nextValue;
@@ -1235,7 +1235,7 @@ function renderEmailSettings() {
   setEmailReminderIntensityValue(
     ["gentle", "normal", "dramatic"].includes(preferences.reminderIntensity)
       ? preferences.reminderIntensity
-      : "dramatic"
+      : "normal"
   );
   setEmailReminderIntensityDisabled(!activeUser || preferences.studyReminders === false);
 

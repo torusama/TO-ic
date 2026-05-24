@@ -28,7 +28,7 @@ import {
 
 const defaultStats = { streak: 0, lessons: 0 };
 const defaultLearning = { recentCourse: "None yet", recentLesson: "None yet" };
-const defaultEmailPreferences = { studyReminders: true, newLessonAlerts: true, reminderIntensity: "dramatic" };
+const defaultEmailPreferences = { studyReminders: true, newLessonAlerts: true, reminderIntensity: "normal" };
 const animationFields = {
   header: "streakHeaderAnimatedDate",
   profile: "streakProfileAnimatedDate",

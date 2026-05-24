@@ -25,7 +25,7 @@ CRON_SECRET=make-a-random-string-at-least-16-chars
 FIREBASE_SERVICE_ACCOUNT_B64=base64-encoded-service-account-json
 MAX_EMAILS_PER_RUN=40
 EMAIL_SEND_DELAY_MS=900
-MAX_STUDY_REMINDERS_PER_DAY=4
+MAX_STUDY_REMINDERS_PER_DAY=3
 DORMANT_WARNING_DAYS=5
 MAX_ANNOUNCEMENTS_PER_RUN=10
 MAX_LESSON_ANNOUNCEMENTS_PER_RUN=10
@@ -66,7 +66,7 @@ Reminder frequency follows the user's profile setting:
 
 - Gentle: up to 1 study reminder per day.
 - Normal: up to 2 study reminders per day.
-- AzoTa dramatic: up to 4 study reminders per day.
+- AzoTa dramatic: up to 3 study reminders per day.
 
 The dramatic dormant-user copy is only eligible after `DORMANT_WARNING_DAYS` days without a site visit or completed lesson.
 

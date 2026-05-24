@@ -260,8 +260,13 @@ async function sendPairStreakNudge({ requesterUid, partnerUid }) {
 
   const nudgeId = toDocId(`${requesterUid}-${partnerUid}-${todayKey}`);
   const nudgeRef = pairRef.collection("nudges").doc(nudgeId);
+  const deliveryId = `pair-streak-nudge__${requesterUid}__${todayKey}`;
+  const deliveryRef = partnerRef.collection("emailDeliveries").doc(deliveryId);
   const existingNudge = await nudgeRef.get();
-  if (existingNudge?.exists) {
+  const existingNudgeStatus = existingNudge?.exists
+    ? String(existingNudge.data()?.status || "sent").toLowerCase()
+    : "";
+  if (existingNudge?.exists && !["failed", "sending"].includes(existingNudgeStatus)) {
     return {
       sent: false,
       alreadySent: true,
@@ -270,22 +275,82 @@ async function sendPairStreakNudge({ requesterUid, partnerUid }) {
     };
   }
 
-  const copy = await createPairStreakNudgeCopy({
-    requesterData,
-    partnerData,
-    pairData,
-    todayKey,
+  const deliveryClaim = await claimEmailDelivery(deliveryRef, {
+    type: "pair-streak-nudge",
+    to: partnerData.email,
   });
+  if (!deliveryClaim.claimed) {
+    return {
+      sent: false,
+      alreadySent: true,
+      partnerName: cleanDisplayName(partnerData.displayName) || "bạn học của bạn",
+      todayKey,
+    };
+  }
+
+  await nudgeRef.set(
+    {
+      fromUid: requesterUid,
+      toUid: partnerUid,
+      toEmail: partnerData.email,
+      status: "sending",
+      deliveryId,
+      claimId: deliveryClaim.claimId,
+      startedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  let copy;
+  try {
+    copy = await createPairStreakNudgeCopy({
+      requesterData,
+      partnerData,
+      pairData,
+      todayKey,
+    });
+  } catch (error) {
+    await Promise.all([
+      markDeliveryFailed(deliveryRef, error, deliveryClaim),
+      nudgeRef.set(
+        {
+          status: "failed",
+          error: limitText(error.message, 240),
+          failedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      ),
+    ]);
+    throw error;
+  }
   const now = admin.firestore.FieldValue.serverTimestamp();
 
-  await sendMail({
-    to: partnerData.email,
-    copy,
-    ctaUrl: `${getAppBaseUrl()}/pages/hoc-phan.html`,
-    type: "pair-streak-nudge",
-    user: partnerData,
-    tracking: { uid: partnerUid, deliveryId: `pair-streak-nudge__${requesterUid}__${todayKey}`, type: "pair-streak-nudge" },
-  });
+  try {
+    await sendMail({
+      to: partnerData.email,
+      copy,
+      ctaUrl: `${getAppBaseUrl()}/pages/hoc-phan.html`,
+      type: "pair-streak-nudge",
+      user: partnerData,
+      tracking: { uid: partnerUid, deliveryId, type: "pair-streak-nudge" },
+    });
+  } catch (error) {
+    await Promise.all([
+      markDeliveryFailed(deliveryRef, error, deliveryClaim),
+      nudgeRef.set(
+        {
+          status: "failed",
+          error: limitText(error.message, 240),
+          failedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      ),
+    ]);
+    throw error;
+  }
 
   await Promise.all([
     nudgeRef.set(
@@ -294,7 +359,21 @@ async function sendPairStreakNudge({ requesterUid, partnerUid }) {
         toUid: partnerUid,
         toEmail: partnerData.email,
         subject: copy.subject,
+        status: "sent",
+        deliveryId,
         sentAt: now,
+        updatedAt: now,
+      },
+      { merge: true }
+    ),
+    deliveryRef.set(
+      {
+        type: "pair-streak-nudge",
+        to: partnerData.email,
+        subject: copy.subject,
+        status: "sent",
+        sentAt: now,
+        updatedAt: now,
       },
       { merge: true }
     ),
@@ -410,7 +489,6 @@ async function expireBrokenPairStreaks(todayKey) {
     const pairStreak = Number(pairData.brokenFromStreak || pairData.streak || 0);
     const deliveryId = `pair-streak-broken__${breakDate}`;
     const deliveryRef = docSnap.ref.collection("emailDeliveries").doc(deliveryId);
-    const deliverySnap = await deliveryRef.get();
     const now = admin.firestore.FieldValue.serverTimestamp();
     const brokenUpdate = alreadyBroken
       ? {
@@ -433,7 +511,10 @@ async function expireBrokenPairStreaks(todayKey) {
 
     if (!alreadyBroken) result.broken += 1;
 
-    if (deliverySnap.exists) {
+    const deliveryClaim = await claimEmailDelivery(deliveryRef, {
+      type: "pair-streak-broken",
+    });
+    if (!deliveryClaim.claimed) {
       result.skipped += 1;
       continue;
     }
@@ -480,8 +561,10 @@ async function expireBrokenPairStreaks(todayKey) {
               type: "pair-streak-broken",
               to: user.data.email,
               subject: copy.subject,
+              status: "sent",
               pairId: docSnap.id,
               sentAt: now,
+              updatedAt: now,
             },
             { merge: true }
           ),
@@ -507,14 +590,17 @@ async function expireBrokenPairStreaks(todayKey) {
       await deliveryRef.set(
         {
           type: "pair-streak-broken",
+          status: "sent",
           sentCount: sentForPair,
           subject: "Chuỗi học nhóm đã kết thúc",
           sentAt: now,
+          updatedAt: now,
         },
         { merge: true }
       );
     } catch (error) {
       result.failed += 1;
+      await markDeliveryFailed(deliveryRef, error, deliveryClaim);
       console.error("Pair streak break email failed:", {
         pairId: docSnap.id,
         message: error.message,
@@ -533,6 +619,7 @@ async function sendDailyStudyReminders(todayKey, { slot = "daily" } = {}) {
   const result = await deliverToCandidates({
     candidates,
     deliveryId: `study-reminder__${todayKey}__${slot}`,
+    reminderSlotClaim: { todayKey, slot },
     type: (user, copy) => copy.kind || "study-reminder",
     copyFactory: (user) => createContextualStudyReminderCopy(user, todayKey, { slot }),
     urlFactory: () => `${getAppBaseUrl()}/pages/hoc-phan.html`,
@@ -551,6 +638,7 @@ async function sendStarterStudyReminders(todayKey, { slot = "morning" } = {}) {
   const result = await deliverToCandidates({
     candidates,
     deliveryId: `starter-reminder__${todayKey}__${slot}`,
+    reminderSlotClaim: { todayKey, slot },
     type: "starter-reminder",
     copyFactory: (user) => createStudyReminderCopy(user, todayKey, { kind: "starter-reminder", slot }),
     urlFactory: () => `${getAppBaseUrl()}/pages/hoc-phan.html`,
@@ -585,15 +673,10 @@ async function sendReadyAnnouncements() {
   const results = [];
 
   for (const item of announcements) {
-    const announcement = normalizeAnnouncement(item.data, item.id);
-    await item.ref.set(
-      {
-        status: "sending",
-        startedAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
+    const claimedAnnouncement = await claimAnnouncementForSend(item.ref);
+    if (!claimedAnnouncement) continue;
+
+    const announcement = normalizeAnnouncement(claimedAnnouncement.data, item.id);
 
     const candidates = await getEmailCandidates((user) => shouldSendAnnouncement(user));
     const deliveryResult = await deliverToCandidates({
@@ -907,19 +990,187 @@ async function resetBrokenStreakIfNeeded(user, todayKey) {
   );
 }
 
+async function claimAnnouncementForSend(announcementRef) {
+  const claimId = createDeliveryClaimId();
+  return getDb().runTransaction(async (transaction) => {
+    const snap = await transaction.get(announcementRef);
+    if (!snap.exists) return null;
+
+    const data = snap.data() || {};
+    if (!shouldSendAnnouncementDoc(data)) return null;
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    transaction.set(
+      announcementRef,
+      {
+        status: "sending",
+        sendClaimId: claimId,
+        startedAt: now,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+
+    return {
+      id: snap.id,
+      ref: announcementRef,
+      data: { ...data, status: "sending" },
+      claimId,
+    };
+  });
+}
+
+async function claimEmailDelivery(deliveryRef, metadata = {}) {
+  const claimId = createDeliveryClaimId();
+  const lockExpiresAt = getDeliveryLockExpiresAt();
+
+  return getDb().runTransaction(async (transaction) => {
+    const snap = await transaction.get(deliveryRef);
+    const data = snap.exists ? snap.data() || {} : {};
+    if (snap.exists && shouldSkipExistingDelivery(data)) {
+      return {
+        claimed: false,
+        status: String(data.status || "sent"),
+      };
+    }
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const update = {
+      ...(snap.exists ? {} : { createdAt: now }),
+      ...(metadata.type ? { type: metadata.type } : {}),
+      ...(metadata.to ? { to: metadata.to } : {}),
+      status: "sending",
+      claimId,
+      sendAttempts: Number(data.sendAttempts || 0) + 1,
+      sendingStartedAt: now,
+      lockExpiresAt,
+      updatedAt: now,
+    };
+    if (snap.exists) {
+      update.error = admin.firestore.FieldValue.delete();
+      update.failedAt = admin.firestore.FieldValue.delete();
+    }
+
+    transaction.set(deliveryRef, update, { merge: true });
+
+    return { claimed: true, claimId };
+  });
+}
+
+async function claimReminderSlot(userRef, todayKey, slot) {
+  return getDb().runTransaction(async (transaction) => {
+    const snap = await transaction.get(userRef);
+    if (!snap.exists) return false;
+
+    const data = snap.data() || {};
+    if (data.emailPreferences?.studyReminders === false) return false;
+    if (hasStudiedToday(data.stats, todayKey)) return false;
+    if (!canSendReminderInSlot(data, todayKey, slot)) return false;
+
+    const state = getReminderState(data, todayKey);
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    transaction.set(
+      userRef,
+      {
+        emailState: {
+          studyReminderDay: todayKey,
+          studyReminderCount: state.count + 1,
+          studyReminderSlots: {
+            ...state.slots,
+            [slot]: "sending",
+          },
+          pendingStudyReminderSlot: slot,
+          pendingStudyReminderClaimedAt: now,
+        },
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+
+    return true;
+  });
+}
+
+async function markDeliveryFailed(deliveryRef, error, claim = {}) {
+  await deliveryRef.set(
+    {
+      status: "failed",
+      ...(claim.claimId ? { claimId: claim.claimId } : {}),
+      error: limitText(error.message, 240),
+      failedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
+
+function shouldSkipExistingDelivery(data = {}) {
+  const status = String(data.status || "sent").toLowerCase();
+  if (status === "sending") {
+    return getTimestampMillis(data.lockExpiresAt) > Date.now();
+  }
+
+  if (status === "failed") {
+    return !shouldRetryFailedDelivery(data);
+  }
+
+  return true;
+}
+
+function shouldRetryFailedDelivery(data = {}) {
+  const retryEnabled = ["1", "true", "yes", "on"].includes(
+    String(process.env.EMAIL_RETRY_FAILED_DELIVERIES || "").trim().toLowerCase()
+  );
+  if (!retryEnabled) return false;
+
+  const maxAttempts = getNumberEnv("EMAIL_MAX_RETRY_ATTEMPTS", 2);
+  return Number(data.sendAttempts || 0) < maxAttempts;
+}
+
+function getDeliveryLockExpiresAt() {
+  const minutes = getNumberEnv("EMAIL_DELIVERY_LOCK_MINUTES", 30);
+  return admin.firestore.Timestamp.fromDate(new Date(Date.now() + minutes * 60000));
+}
+
+function getTimestampMillis(value) {
+  if (!value) return 0;
+  if (typeof value.toMillis === "function") return value.toMillis();
+  if (typeof value.toDate === "function") return value.toDate().getTime();
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number") return value;
+  const parsed = Date.parse(String(value));
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function createDeliveryClaimId() {
+  return crypto.randomBytes(10).toString("hex");
+}
+
 async function deliverToCandidates(options) {
-  const { candidates, deliveryId, type, copyFactory, urlFactory, notificationFactory, afterSend } = options;
+  const { candidates, deliveryId, reminderSlotClaim, type, copyFactory, urlFactory, notificationFactory, afterSend } = options;
   const delayMs = getNumberEnv("EMAIL_SEND_DELAY_MS", 900);
   const result = { sent: 0, skipped: 0, failed: 0 };
 
   for (const user of candidates) {
+    if (reminderSlotClaim) {
+      const slotClaimed = await claimReminderSlot(user.ref, reminderSlotClaim.todayKey, reminderSlotClaim.slot);
+      if (!slotClaimed) {
+        result.skipped += 1;
+        continue;
+      }
+    }
+
     const deliveryRef = user.ref.collection("emailDeliveries").doc(deliveryId);
-    const deliverySnap = await deliveryRef.get();
-    if (deliverySnap.exists) {
+    const deliveryClaim = await claimEmailDelivery(deliveryRef, {
+      type: typeof type === "function" ? "pending" : type,
+      to: user.data.email,
+    });
+    if (!deliveryClaim.claimed) {
       result.skipped += 1;
       continue;
     }
 
+    let mailSent = false;
     try {
       const copy = await copyFactory(user);
       const deliveryType = typeof type === "function" ? type(user, copy) : type;
@@ -932,36 +1183,70 @@ async function deliverToCandidates(options) {
         user: user.data,
         tracking: { uid: user.id, deliveryId, type: deliveryType },
       });
+      mailSent = true;
 
       const notification = notificationFactory(copy);
       const now = admin.firestore.FieldValue.serverTimestamp();
-      await Promise.all([
-        deliveryRef.set(
+      await deliveryRef.set(
+        {
+          type: deliveryType,
+          to: user.data.email,
+          subject: copy.subject,
+          status: "sent",
+          sentAt: now,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
+      try {
+        await Promise.all([
+          user.ref.collection("notifications").doc(notification.id).set(
+            {
+              title: notification.title,
+              body: notification.body,
+              unread: true,
+              createdAt: now,
+              updatedAt: now,
+            },
+            { merge: true }
+          ),
+          typeof afterSend === "function" ? afterSend(user, copy) : Promise.resolve(),
+        ]);
+      } catch (postSendError) {
+        await deliveryRef.set(
           {
-            type: deliveryType,
-            to: user.data.email,
-            subject: copy.subject,
-            sentAt: now,
+            status: "sent-with-errors",
+            postSendError: limitText(postSendError.message, 240),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
           { merge: true }
-        ),
-        user.ref.collection("notifications").doc(notification.id).set(
-          {
-            title: notification.title,
-            body: notification.body,
-            unread: true,
-            createdAt: now,
-            updatedAt: now,
-          },
-          { merge: true }
-        ),
-        afterSend(user, copy),
-      ]);
+        );
+        console.error("Email post-send update failed:", {
+          uid: user.id,
+          email: user.data.email,
+          deliveryId,
+          message: postSendError.message,
+        });
+      }
 
       result.sent += 1;
       if (delayMs > 0) await sleep(delayMs);
     } catch (error) {
-      result.failed += 1;
+      if (mailSent) {
+        result.sent += 1;
+        await deliveryRef.set(
+          {
+            status: "sent-with-errors",
+            postSendError: limitText(error.message, 240),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } else {
+        result.failed += 1;
+        await markDeliveryFailed(deliveryRef, error, deliveryClaim);
+      }
       console.error("Email delivery failed:", {
         uid: user.id,
         email: user.data.email,
@@ -1007,18 +1292,18 @@ function getMaxStudyRemindersPerDay(data = {}) {
   const userMax = {
     gentle: 1,
     normal: 2,
-    dramatic: 4,
+    dramatic: 3,
   }[getReminderIntensity(data)] || 2;
   const globalMax = getNumberEnv("MAX_STUDY_REMINDERS_PER_DAY", userMax);
   return Math.min(userMax, globalMax);
 }
 
 function getReminderIntensity(data = {}) {
-  const value = String(data.emailPreferences?.reminderIntensity || "dramatic").toLowerCase();
-  return ["gentle", "normal", "dramatic"].includes(value) ? value : "dramatic";
+  const value = String(data.emailPreferences?.reminderIntensity || "normal").toLowerCase();
+  return ["gentle", "normal", "dramatic"].includes(value) ? value : "normal";
 }
 
-function getReminderTone({ isStarter = false, reminderIntensity = "dramatic", reminderCountToday = 0 } = {}) {
+function getReminderTone({ isStarter = false, reminderIntensity = "normal", reminderCountToday = 0 } = {}) {
   if (reminderIntensity === "gentle") {
     return isStarter
       ? "nhắc nhẹ, ấm, không gây áp lực; chỉ cần một bài nhỏ để bắt đầu"
@@ -1051,17 +1336,14 @@ function getReminderState(data = {}, todayKey) {
 }
 
 function buildReminderEmailStateUpdate(data = {}, todayKey, slot, kind, templateKey = "") {
-  const state = getReminderState(data, todayKey);
   const update = {
     "emailState.studyReminderDay": todayKey,
-    "emailState.studyReminderCount": state.count + 1,
-    "emailState.studyReminderSlots": {
-      ...state.slots,
-      [slot]: true,
-    },
+    [`emailState.studyReminderSlots.${slot}`]: true,
     "emailState.lastStudyReminderDate": todayKey,
     "emailState.lastStudyReminderSlot": slot,
     "emailState.lastStudyReminderKind": kind,
+    "emailState.pendingStudyReminderSlot": admin.firestore.FieldValue.delete(),
+    "emailState.pendingStudyReminderClaimedAt": admin.firestore.FieldValue.delete(),
     "emailState.lastEmailSentAt": admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
@@ -1254,10 +1536,10 @@ async function getProfileForReminder(uid) {
 function createWelcomeEmailCopy(userData = {}) {
   const firstName = getFirstName(userData.displayName);
   return {
-    subject: "Chào mừng đến với AzoTa TOEIC",
-    preview: "Tài khoản đã sẵn sàng. Bắt đầu bằng một bài TOEIC ngắn nhé.",
-    body: `Chào ${firstName},\n\nChào mừng bạn đến với AzoTa TOEIC. Hồ sơ, streak, thông báo và tiến độ bài học của bạn đã sẵn sàng để đồng bộ trên tài khoản.\n\nHãy bắt đầu bằng một bài ngắn hôm nay và tạo streak TOEIC đầu tiên.`,
-    ctaText: "Bắt đầu học",
+    subject: "Vào làm thử một bài nhé",
+    preview: "Tài khoản xong rồi. AzoTa để sẵn bài học cho bạn.",
+    body: `Chào ${firstName},\n\nTài khoản AzoTa của bạn đã sẵn sàng rồi. Vào làm thử một bài TOEIC ngắn để streak đầu tiên có mặt nhé.`,
+    ctaText: "Vào học",
   };
 }
 
@@ -1956,9 +2238,9 @@ async function createAnnouncementCopy(user, announcement) {
   const firstName = getFirstName(data.displayName);
   const fallback = {
     templateKey: "announcement-new-lesson",
-    subject: "Có bài TOEIC mới",
-    preview: "Một bài mới đã sẵn sàng trong khóa học của bạn.",
-    body: `Chào ${firstName},\n\nMột bài mới đã sẵn sàng trong ${announcement.courseTitle}: "${announcement.lessonTitle}". Mở bài khi bạn sẵn sàng cho buổi TOEIC tiếp theo nhé.`,
+    subject: "Có bài mới rồi nè",
+    preview: `"${announcement.lessonTitle}" vừa được mở trong khóa học.`,
+    body: `Chào ${firstName},\n\nBài "${announcement.lessonTitle}" đã có trong ${announcement.courseTitle}. Rảnh vài phút thì mở ra học luôn nhé.`,
     ctaText: "Mở bài học",
   };
 
@@ -2255,6 +2537,14 @@ function renderEmailHtml({ copy, ctaUrl, profileUrl, type, user = {} }) {
   const isStarter = type === "starter-reminder";
   const isMilestone = type === "milestone";
   const isFreeze = type === "freeze";
+  const isRookie = type === "streak-rookie";
+  const isVip = type === "streak-vip";
+  const isLastCall = type === "streak-last-call";
+  const isWeekend = type === "weekend-streak";
+  const isMorning = type === "morning-check-in";
+  const isMidday = type === "midday-rescue";
+  const isComeback = type === "comeback-reminder";
+  const isDormant = type === "dormant-warning";
   const isPairBroken = type === "pair-streak-broken";
   const isSocial =
     type === "friend-streak-danger" ||
@@ -2270,15 +2560,31 @@ function renderEmailHtml({ copy, ctaUrl, profileUrl, type, user = {} }) {
   if (isAnnouncement) {
     accent = "#1cb0f6"; accentShadow = "#1899d6"; heroIcon = getEmailHeroIcon("book");
   } else if (isStarter) {
-    accent = "#ff4b4b"; accentShadow = "#cc3c3c"; heroIcon = getEmailHeroIcon("spark-flame");
+    accent = "#58cc02"; accentShadow = "#46a302"; heroIcon = getEmailHeroIcon("seedling");
   } else if (isMilestone) {
-    accent = "#ffc800"; accentShadow = "#cc9f00"; heroIcon = getEmailHeroIcon("flame");
+    accent = "#ffc800"; accentShadow = "#cc9f00"; heroIcon = getEmailHeroIcon("trophy");
   } else if (isFreeze) {
     accent = "#2b70c9"; accentShadow = "#1e5299"; heroIcon = getEmailHeroIcon("freeze-flame");
+  } else if (isRookie) {
+    accent = "#58cc02"; accentShadow = "#46a302"; heroIcon = getEmailHeroIcon("sprout");
+  } else if (isVip) {
+    accent = "#ffc800"; accentShadow = "#cc9f00"; heroIcon = getEmailHeroIcon("crown");
+  } else if (isLastCall) {
+    accent = "#ff4b4b"; accentShadow = "#cc3c3c"; heroIcon = getEmailHeroIcon("alarm");
+  } else if (isWeekend) {
+    accent = "#1cb0f6"; accentShadow = "#1899d6"; heroIcon = getEmailHeroIcon("beach");
+  } else if (isMorning) {
+    accent = "#ff9600"; accentShadow = "#d87b00"; heroIcon = getEmailHeroIcon("sunrise");
+  } else if (isMidday) {
+    accent = "#ce82ff"; accentShadow = "#a568cc"; heroIcon = getEmailHeroIcon("zap");
+  } else if (isComeback) {
+    accent = "#58cc02"; accentShadow = "#46a302"; heroIcon = getEmailHeroIcon("boomerang");
+  } else if (isDormant) {
+    accent = "#ff4b4b"; accentShadow = "#cc3c3c"; heroIcon = getEmailHeroIcon("satellite");
   } else if (isPairBroken) {
     accent = "#94a3b8"; accentShadow = "#64748b"; heroIcon = getEmailHeroIcon("broken-flame");
   } else if (isSocial) {
-    accent = "#ce82ff"; accentShadow = "#a568cc"; heroIcon = getEmailHeroIcon(type === "friend-overtook" ? "spark-flame" : "pair-flame");
+    accent = "#ce82ff"; accentShadow = "#a568cc"; heroIcon = getEmailHeroIcon(type === "friend-overtook" ? "rocket" : "pair-flame");
   }
 
   return `<!doctype html>
@@ -2288,8 +2594,8 @@ function renderEmailHtml({ copy, ctaUrl, profileUrl, type, user = {} }) {
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f0f2f5;"><tr><td align="center" style="padding:40px 20px;">
 <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;border-radius:16px;overflow:hidden;background:#ffffff;box-shadow:0 4px 12px rgba(0,0,0,0.05);">
 
-<tr><td style="padding:48px 32px 32px;text-align:center;">
-<div style="width:76px;height:76px;margin:0 auto 24px;border-radius:22px;background:${accent};box-shadow:0 6px 0 ${accentShadow};font-size:0;line-height:0;text-align:center;">${heroIcon}</div>
+<tr><td style="padding:44px 32px 30px;text-align:center;">
+<div style="margin:0 auto 22px;font-size:0;line-height:0;text-align:center;">${heroIcon}</div>
 <p style="margin:0 0 16px;color:#100f3e;font-size:26px;font-weight:900;line-height:1.3;letter-spacing:0;">${escapeHtml(copy.subject)}</p>
 </td></tr>
 
@@ -2309,27 +2615,29 @@ function renderEmailHtml({ copy, ctaUrl, profileUrl, type, user = {} }) {
 }
 
 function getEmailHeroIcon(kind = "flame") {
-  let url = "https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f525.png";
-  let alt = "Streak flame";
+  const icons = {
+    flame: ["1f525", "Streak flame"],
+    book: ["1f4d6", "Lesson"],
+    seedling: ["1f331", "Start"],
+    sprout: ["1f331", "New streak"],
+    trophy: ["1f3c6", "Milestone"],
+    crown: ["1f451", "Long streak"],
+    alarm: ["23f0", "Last call"],
+    beach: ["1f3d6", "Weekend"],
+    sunrise: ["1f305", "Morning"],
+    zap: ["26a1", "Quick lesson"],
+    boomerang: ["1fa83", "Come back"],
+    satellite: ["1f4e1", "Check-in"],
+    "pair-flame": ["1f91d", "Pair streak"],
+    "broken-flame": ["1f494", "Broken streak"],
+    "freeze-flame": ["2744", "Protected streak"],
+    "spark-flame": ["2728", "Spark"],
+    rocket: ["1f680", "Catch up"],
+  };
+  const [code, alt] = icons[kind] || icons.flame;
+  const url = `https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/${code}.png`;
 
-  if (kind === "book") {
-    url = "https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4d6.png";
-    alt = "Lesson";
-  } else if (kind === "pair-flame") {
-    url = "https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f465.png";
-    alt = "Pair streak";
-  } else if (kind === "broken-flame") {
-    url = "https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f494.png";
-    alt = "Broken streak";
-  } else if (kind === "freeze-flame") {
-    url = "https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/2744.png";
-    alt = "Protected streak";
-  } else if (kind === "spark-flame") {
-    url = "https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/2728.png";
-    alt = "Spark flame";
-  }
-
-  return `<img src="${url}" width="48" height="48" alt="${alt}" style="display:block;margin:14px auto 0;border:0;outline:none;text-decoration:none;">`;
+  return `<img src="${url}" width="64" height="64" alt="${alt}" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;">`;
 }
 
 function getAiProvider() {
@@ -2345,11 +2653,11 @@ function getAiApiKey(provider) {
 
 function getEmailCopySystemPrompt() {
   return [
-    "You are 'AzoTa TOEIC', a Duolingo-style TOEIC study reminder with comic urgency: witty, clingy, nosy, slightly dramatic, but still useful.",
-    "Write extremely short Vietnamese emails that feel handcrafted for the learner. Avoid generic phrases such as 'Hãy cùng bắt đầu hành trình', 'Mở khóa tiềm năng', 'nâng cao kỹ năng', or 'Đừng ngần ngại'.",
-    "Every email must contain one specific hook based on the context: streak count, days away, reminder slot, friendName, pair streak, recent lesson, or no-streak status.",
-    "Respect reminderIntensity: gentle is calm and low pressure, normal is playful, dramatic is allowed to lightly scold, roast the streak/dashboard/habit, and sound clingy or meme-like.",
-    "For dramatic, do not be bland. Use one vivid jab such as the streak judging them, the dashboard collecting dust, the zero paying rent, or AzoTa opening attendance. Keep it funny, not cruel.",
+    "You are 'AzoTa TOEIC', a Vietnamese TOEIC study buddy inspired by Duolingo's short, streak-focused reminders.",
+    "Write like a real person sent the email after noticing one concrete thing. No chatbot voice, no marketing voice, no grand promises.",
+    "Every email must use exactly one specific hook from context: streak count, days away, reminder slot, friendName, pair streak, recent lesson, or no-streak status.",
+    "Respect reminderIntensity: gentle is calm and friendly, normal is playful, dramatic may lightly roast the streak/dashboard/habit. The joke targets the missed lesson, not the learner.",
+    "For dramatic, use one vivid everyday image: the streak looking at the clock, the dashboard getting dusty, the zero sitting there too long, or AzoTa doing roll call. Keep it funny, not cruel.",
     "Never attack identity, intelligence, appearance, family, health, or protected traits. Do not use slurs. The joke targets the missed lesson, the streak, or the dashboard, not the learner as a person.",
     "If kind is 'study-reminder' with a streak: make the streak feel like it is in danger and needs one lesson today. Be funny, not cruel.",
     "If kind is 'streak-rookie': the streak is only 1-3 days old. Treat it like a small flame or baby habit that needs one easy lesson.",
@@ -2374,6 +2682,9 @@ function getEmailCopySystemPrompt() {
     "If kind is 'pair-streak-broken': the pair/team streak has ended after 3 days without progress. Be clear, calm, and invite them to restart with one short lesson.",
     "If kind is 'comeback-reminder': the learner has no active streak or has been away for multiple days. Make restarting feel easy with one short TOEIC lesson.",
     "All subject, preview, body, and ctaText values must be in Vietnamese.",
+    "Use casual Vietnamese naturally: 'nè', 'đó', 'nhé', 'đi' are allowed, but only if they fit. Do not overdo slang.",
+    "Do not use corporate phrases: 'hành trình học tập', 'tối ưu kỹ năng', 'chinh phục mục tiêu', 'khơi dậy tiềm năng', 'đồng hành cùng bạn', 'cam kết', 'bứt phá'.",
+    "Body format: greeting plus 1-2 short sentences. Prefer under 45 Vietnamese words total. Vary sentence rhythm; do not start every body with the same phrase.",
     "Return only a JSON object with these keys: subject, preview, body, ctaText.",
   ].join("\n");
 }
