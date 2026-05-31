@@ -658,15 +658,12 @@ async function sendReadyAnnouncements() {
   const db = getDb();
   const queuedLessons = await queueReadyLessonAnnouncements();
   const maxAnnouncements = getNumberEnv("MAX_ANNOUNCEMENTS_PER_RUN", 10);
-  const [readySnapshot, legacySnapshot] = await Promise.all([
-    db.collection("announcements").where("status", "in", ["ready", "queued"]).limit(maxAnnouncements).get(),
-    db.collection("announcements").limit(maxAnnouncements).get(),
-  ]);
-  const announcementDocs = new Map();
-  [...readySnapshot.docs, ...legacySnapshot.docs].forEach((docSnap) => {
-    announcementDocs.set(docSnap.id, docSnap);
-  });
-  const announcements = [...announcementDocs.values()]
+  const readySnapshot = await db
+    .collection("announcements")
+    .where("status", "in", ["ready", "queued"])
+    .limit(maxAnnouncements)
+    .get();
+  const announcements = readySnapshot.docs
     .map((docSnap) => ({ ref: docSnap.ref, id: docSnap.id, data: docSnap.data() || {} }))
     .filter((item) => shouldSendAnnouncementDoc(item.data))
     .slice(0, maxAnnouncements);
@@ -824,7 +821,14 @@ async function queueReadyLessonAnnouncements() {
   for (const entry of lessonEntries) {
     const { lessonSnap, courseId, course } = entry;
     try {
-      const lesson = lessonSnap.data() || {};
+      // Re-read the lesson inside the loop to catch concurrent clears.
+      const freshLessonSnap = await lessonSnap.ref.get();
+      const lesson = freshLessonSnap.exists ? freshLessonSnap.data() || {} : {};
+      if (!lesson.notifyNewLesson) {
+        result.skipped += 1;
+        continue;
+      }
+
       const courseRef = lessonSnap.ref.parent.parent;
       if (!courseRef || lesson.published === false) {
         result.skipped += 1;
@@ -851,8 +855,12 @@ async function queueReadyLessonAnnouncements() {
         continue;
       }
 
+      // Atomically create the announcement and clear the lesson flag in one
+      // batch so that concurrent calls cannot both pick up the same lesson.
       const now = admin.firestore.FieldValue.serverTimestamp();
-      await announcementRef.set(
+      const batch = db.batch();
+      batch.set(
+        announcementRef,
         {
           ...(announcementSnap.exists ? {} : { createdAt: now }),
           type: "new-lesson",
@@ -870,8 +878,8 @@ async function queueReadyLessonAnnouncements() {
         },
         { merge: true }
       );
-
-      await lessonSnap.ref.set(
+      batch.set(
+        lessonSnap.ref,
         {
           notifyNewLesson: false,
           announcementId,
@@ -881,6 +889,7 @@ async function queueReadyLessonAnnouncements() {
         },
         { merge: true }
       );
+      await batch.commit();
 
       result.queued += 1;
     } catch (error) {
@@ -1264,6 +1273,16 @@ function shouldSendStudyReminder(user, todayKey, { slot = "daily" } = {}) {
   if (data.emailPreferences?.studyReminders === false) return false;
   if (hasStudiedToday(data.stats, todayKey)) return false;
   if (!canSendReminderInSlot(data, todayKey, slot)) return false;
+
+  // Skip users who already received a starter reminder today and still have
+  // no active streak — the daily path would produce a near-identical email.
+  if (
+    getActiveStreak(data.stats, todayKey) <= 0 &&
+    data.emailState?.lastStarterReminderDate === todayKey
+  ) {
+    return false;
+  }
+
   return true;
 }
 
