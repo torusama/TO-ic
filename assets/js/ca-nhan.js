@@ -334,9 +334,41 @@ notificationList?.addEventListener("keydown", async (event) => {
 });
 
 function openNotificationTarget(notifData) {
-  if (!notifData || typeof window.openStreakModal !== "function") return;
+  if (!notifData) return;
+  const targetUrl = getNotificationTargetUrl(notifData);
+  if (targetUrl) {
+    window.location.href = targetUrl;
+    return;
+  }
+  if (typeof window.openStreakModal !== "function") return;
   if (notifData.type === "streak_invite" || notifData.type === "streak_accept" || notifData.type === "pair_streak_broken") {
     window.openStreakModal(false, true, notifData.type === "streak_invite" ? "invites" : "friends");
+  }
+}
+
+function getNotificationTargetUrl(notifData = {}) {
+  if (notifData.courseId && notifData.lessonId) {
+    const query = new URLSearchParams({
+      course: notifData.courseId,
+      lesson: notifData.lessonId,
+    });
+    return `./hoc-phan-chi-tiet.html?${query.toString()}`;
+  }
+
+  if (notifData.actionUrl || notifData.lessonUrl) {
+    return normalizeNotificationUrl(notifData.actionUrl || notifData.lessonUrl);
+  }
+
+  return "";
+}
+
+function normalizeNotificationUrl(value) {
+  try {
+    const url = new URL(value, window.location.href);
+    if (url.origin !== window.location.origin) return "";
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch (_) {
+    return "";
   }
 }
 

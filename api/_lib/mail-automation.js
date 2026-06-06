@@ -678,11 +678,11 @@ async function sendReadyAnnouncements() {
     const candidates = await getEmailCandidates((user) => shouldSendAnnouncement(user));
     const deliveryResult = await deliverToCandidates({
       candidates,
-      deliveryId: `announcement__${item.id}${item.data.sendVersion > 1 ? `__v${item.data.sendVersion}` : ""}`,
+      deliveryId: getAnnouncementDeliveryId(item.id, claimedAnnouncement.data),
       type: "announcement",
       copyFactory: (user) => createAnnouncementCopy(user, announcement),
       urlFactory: () => announcement.lessonUrl,
-      notificationFactory: () => createAnnouncementNotification(item.id),
+      notificationFactory: () => createAnnouncementNotification(item.id, announcement),
       afterSend: (user) =>
         user.ref.set(
           {
@@ -804,12 +804,38 @@ function createStarterReminderNotification(todayKey, slot) {
   };
 }
 
-function createAnnouncementNotification(announcementId) {
+function createAnnouncementNotification(announcementId, announcement = {}) {
+  const lessonTitle = cleanText(announcement.lessonTitle);
+  const courseTitle = cleanText(announcement.courseTitle);
   return {
     id: `announcement__${announcementId}`,
-    title: "New TOEIC lesson",
-    body: "A new lesson is ready in your course list.",
+    type: "announcement",
+    title: lessonTitle ? `New lesson: ${lessonTitle}` : "New TOEIC lesson",
+    body: lessonTitle
+      ? `${lessonTitle} has just been posted${courseTitle ? ` in ${courseTitle}` : ""}. Let's study now.`
+      : "A new TOEIC lesson has just been posted. Let's study now.",
+    courseId: announcement.courseId || "",
+    courseTitle,
+    lessonId: announcement.lessonId || "",
+    lessonTitle,
+    lessonUrl: announcement.lessonUrl || "",
   };
+}
+
+function getNotificationWritePayload(notification = {}) {
+  const payload = {
+    title: notification.title || "Notification",
+    body: notification.body || "",
+  };
+
+  ["type", "courseId", "courseTitle", "lessonId", "lessonTitle", "lessonUrl", "actionUrl"].forEach((key) => {
+    const value = notification[key];
+    if (value !== undefined && value !== null && value !== "") {
+      payload[key] = value;
+    }
+  });
+
+  return payload;
 }
 
 async function queueReadyLessonAnnouncements() {
@@ -819,93 +845,44 @@ async function queueReadyLessonAnnouncements() {
   const result = { scanned: lessonEntries.length, queued: 0, skipped: 0, failed: 0 };
 
   for (const entry of lessonEntries) {
-    const { lessonSnap, courseId, course } = entry;
     try {
-      // Re-read the lesson inside the loop to catch concurrent clears.
-      const freshLessonSnap = await lessonSnap.ref.get();
-      const lesson = freshLessonSnap.exists ? freshLessonSnap.data() || {} : {};
-      if (!lesson.notifyNewLesson) {
-        result.skipped += 1;
-        continue;
-      }
+      const queued = await queueLessonAnnouncement(db, entry);
+      result[queued ? "queued" : "skipped"] += 1;
+    } catch (error) {
+      result.failed += 1;
+      console.error("Could not queue lesson announcement:", {
+        path: entry.lessonSnap.ref.path,
+        message: error.message,
+      });
+    }
+  }
 
-      const courseRef = lessonSnap.ref.parent.parent;
-      if (!courseRef || lesson.published === false) {
-        result.skipped += 1;
-        continue;
-      }
+  return result;
+}
 
-      const lessonId = lessonSnap.id;
-      const announcementId = toDocId(`lesson-${courseId}-${lessonId}`);
-      const announcementRef = db.collection("announcements").doc(announcementId);
-      const announcementSnap = await announcementRef.get();
-      const announcementData = announcementSnap.exists ? announcementSnap.data() || {} : {};
+async function queueLessonAnnouncement(db, entry) {
+  const { lessonSnap, courseId, course } = entry;
+  const lessonId = lessonSnap.id;
+  const announcementId = toDocId(`lesson-${courseId}-${lessonId}`);
+  const announcementRef = db.collection("announcements").doc(announcementId);
 
-      if (isTerminalAnnouncementStatus(announcementData.status)) {
-        // Reset the existing announcement so it can be re-sent when the
-        // admin explicitly re-checks the "notify" checkbox.
-        const nextVersion = Number(announcementData.sendVersion || 1) + 1;
-        const now = admin.firestore.FieldValue.serverTimestamp();
-        const batch = db.batch();
-        batch.set(
-          announcementRef,
-          {
-            status: "ready",
-            sendVersion: nextVersion,
-            type: "new-lesson",
-            sendEmail: true,
-            courseId,
-            lessonId,
-            courseTitle: course.title || courseId,
-            lessonTitle: lesson.title || lessonId,
-            lessonUrl: buildLessonUrl(courseId, lessonId),
-            summary: lesson.description || lesson.status || lesson.type || "",
-            source: "course-lesson",
-            sourcePath: lessonSnap.ref.path,
-            updatedAt: now,
-          },
-          { merge: true }
-        );
-        batch.set(
-          lessonSnap.ref,
-          {
-            notifyNewLesson: false,
-            announcementId,
-            announcementStatus: "queued",
-            announcementQueuedAt: now,
-            updatedAt: now,
-          },
-          { merge: true }
-        );
-        await batch.commit();
-        result.queued += 1;
-        continue;
-      }
+  return db.runTransaction(async (transaction) => {
+    const freshLessonSnap = await transaction.get(lessonSnap.ref);
+    if (!freshLessonSnap.exists) return false;
 
-      // Atomically create the announcement and clear the lesson flag in one
-      // batch so that concurrent calls cannot both pick up the same lesson.
-      const now = admin.firestore.FieldValue.serverTimestamp();
-      const batch = db.batch();
-      batch.set(
-        announcementRef,
-        {
-          ...(announcementSnap.exists ? {} : { createdAt: now }),
-          type: "new-lesson",
-          status: "ready",
-          sendEmail: true,
-          courseId,
-          lessonId,
-          courseTitle: course.title || courseId,
-          lessonTitle: lesson.title || lessonId,
-          lessonUrl: buildLessonUrl(courseId, lessonId),
-          summary: lesson.description || lesson.status || lesson.type || "",
-          source: "course-lesson",
-          sourcePath: lessonSnap.ref.path,
-          updatedAt: now,
-        },
-        { merge: true }
-      );
-      batch.set(
+    const lesson = freshLessonSnap.data() || {};
+    const courseRef = lessonSnap.ref.parent.parent;
+    if (!lesson.notifyNewLesson || !courseRef || lesson.published === false) {
+      return false;
+    }
+
+    const announcementSnap = await transaction.get(announcementRef);
+    const announcementData = announcementSnap.exists ? announcementSnap.data() || {} : {};
+    const announcementStatus = String(announcementData.status || "").toLowerCase();
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    if (announcementStatus === "sending") {
+      transaction.set(
         lessonSnap.ref,
         {
           notifyNewLesson: false,
@@ -916,19 +893,46 @@ async function queueReadyLessonAnnouncements() {
         },
         { merge: true }
       );
-      await batch.commit();
-
-      result.queued += 1;
-    } catch (error) {
-      result.failed += 1;
-      console.error("Could not queue lesson announcement:", {
-        path: lessonSnap.ref.path,
-        message: error.message,
-      });
+      return false;
     }
-  }
 
-  return result;
+    const currentVersion = Number(announcementData.sendVersion || 1) || 1;
+    const sendVersion = isSentAnnouncementStatus(announcementStatus) ? currentVersion + 1 : currentVersion;
+
+    transaction.set(
+      announcementRef,
+      {
+        ...(announcementSnap.exists ? {} : { createdAt: now }),
+        type: "new-lesson",
+        status: "ready",
+        sendVersion,
+        sendEmail: true,
+        courseId,
+        lessonId,
+        courseTitle: course.title || courseId,
+        lessonTitle: lesson.title || lessonId,
+        lessonUrl: buildLessonUrl(courseId, lessonId),
+        summary: lesson.description || lesson.status || lesson.type || "",
+        source: "course-lesson",
+        sourcePath: lessonSnap.ref.path,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+    transaction.set(
+      lessonSnap.ref,
+      {
+        notifyNewLesson: false,
+        announcementId,
+        announcementStatus: "queued",
+        announcementQueuedAt: now,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+
+    return true;
+  });
 }
 
 async function getLessonsMarkedForAnnouncement(db, maxLessons) {
@@ -983,6 +987,7 @@ async function getEmailCandidates(predicate, options = {}) {
   const maxEmails = getNumberEnv("MAX_EMAILS_PER_RUN", 40);
   const snapshot = await getDb().collection("users").limit(maxEmails * 3).get();
   const candidates = [];
+  const seenEmails = new Set();
 
   for (const docSnap of snapshot.docs) {
     if (candidates.length >= maxEmails) break;
@@ -991,7 +996,9 @@ async function getEmailCandidates(predicate, options = {}) {
     if (options.resetBrokenStreaks) {
       await resetBrokenStreakIfNeeded(user, options.todayKey);
     }
-    if (Boolean(user.data.email) && predicate(user)) {
+    const emailKey = getRecipientEmailKey(user.data.email);
+    if (emailKey && isAllowedTestRecipient(emailKey) && !seenEmails.has(emailKey) && predicate(user)) {
+      seenEmails.add(emailKey);
       candidates.push(user);
     }
   }
@@ -1186,8 +1193,16 @@ async function deliverToCandidates(options) {
   const { candidates, deliveryId, reminderSlotClaim, type, copyFactory, urlFactory, notificationFactory, afterSend } = options;
   const delayMs = getNumberEnv("EMAIL_SEND_DELAY_MS", 900);
   const result = { sent: 0, skipped: 0, failed: 0 };
+  const seenRecipients = new Set();
 
   for (const user of candidates) {
+    const recipientKey = getRecipientEmailKey(user.data.email);
+    if (!recipientKey || seenRecipients.has(recipientKey)) {
+      result.skipped += 1;
+      continue;
+    }
+    seenRecipients.add(recipientKey);
+
     if (reminderSlotClaim) {
       const slotClaimed = await claimReminderSlot(user.ref, reminderSlotClaim.todayKey, reminderSlotClaim.slot);
       if (!slotClaimed) {
@@ -1239,8 +1254,7 @@ async function deliverToCandidates(options) {
         await Promise.all([
           user.ref.collection("notifications").doc(notification.id).set(
             {
-              title: notification.title,
-              body: notification.body,
+              ...getNotificationWritePayload(notification),
               unread: true,
               createdAt: now,
               updatedAt: now,
@@ -1409,6 +1423,15 @@ function shouldSendAnnouncementDoc(data = {}) {
 
 function isTerminalAnnouncementStatus(status) {
   return ["sending", "sent", "sent-with-errors"].includes(String(status || "").toLowerCase());
+}
+
+function isSentAnnouncementStatus(status) {
+  return ["sent", "sent-with-errors"].includes(String(status || "").toLowerCase());
+}
+
+function getAnnouncementDeliveryId(announcementId, data = {}) {
+  const sendVersion = Number(data.sendVersion || 1);
+  return `announcement__${announcementId}${sendVersion > 1 ? `__v${sendVersion}` : ""}`;
 }
 
 async function createContextualStudyReminderCopy(user, todayKey, { slot = "daily" } = {}) {
@@ -2282,27 +2305,63 @@ function getPairStreakNudgeFallback({ requesterName, firstName, pairStreak, toda
 async function createAnnouncementCopy(user, announcement) {
   const data = user.data;
   const firstName = getFirstName(data.displayName);
+  const lessonTitle = cleanText(announcement.lessonTitle) || "bài TOEIC mới";
+  const courseTitle = cleanText(announcement.courseTitle) || "khóa học TOEIC";
+  const summary = cleanText(announcement.summary);
   const fallback = {
     templateKey: "announcement-new-lesson",
-    subject: "Có bài mới rồi nè",
-    preview: `"${announcement.lessonTitle}" vừa được mở trong khóa học.`,
-    body: `Chào ${firstName},\n\nBài "${announcement.lessonTitle}" đã có trong ${announcement.courseTitle}. Rảnh vài phút thì mở ra học luôn nhé.`,
-    ctaText: "Mở bài học",
+    subject: limitText(`Bài mới: ${lessonTitle}`, 90),
+    preview: limitText(`"${lessonTitle}" vừa được đăng trong ${courseTitle}.`, 140),
+    body: [
+      `Chào ${firstName},`,
+      `AzoTa vừa đăng bài mới: "${lessonTitle}".`,
+      `Khóa học: ${courseTitle}.${summary ? `\nNội dung chính: ${summary}` : ""}`,
+      "Mở bài để xem video/tài liệu và học khi đang rảnh nhé.",
+    ].join("\n\n"),
+    ctaText: "Mở bài mới",
   };
 
-  return createAiEmailCopy(
+  const copy = await createAiEmailCopy(
     {
       kind: "new-lesson",
       displayName: data.displayName,
       firstName,
       streak: Number(data.stats?.streak || 0),
       lessons: Number(data.stats?.lessons || 0),
-      courseTitle: announcement.courseTitle,
-      lessonTitle: announcement.lessonTitle,
-      summary: announcement.summary,
+      courseTitle,
+      lessonTitle,
+      summary,
+      requirement: "Email must clearly include the exact lessonTitle in subject, preview, and body.",
     },
     fallback
   );
+
+  return ensureAnnouncementCopyIncludesLesson(copy, fallback, {
+    lessonTitle,
+    courseTitle,
+    summary,
+  });
+}
+
+function ensureAnnouncementCopyIncludesLesson(copy, fallback, announcement = {}) {
+  const lessonTitle = cleanText(announcement.lessonTitle);
+  if (!lessonTitle) return sanitizeEmailCopy(copy, fallback);
+
+  const next = sanitizeEmailCopy(copy, fallback);
+  if (!textIncludesNormalized(next.subject, lessonTitle)) {
+    next.subject = fallback.subject;
+  }
+  if (!textIncludesNormalized(next.preview, lessonTitle)) {
+    next.preview = fallback.preview;
+  }
+  if (!textIncludesNormalized(next.body, lessonTitle)) {
+    next.body = fallback.body;
+  }
+  if (!next.ctaText || next.ctaText === fallback.ctaText.replace(" mới", "")) {
+    next.ctaText = fallback.ctaText;
+  }
+
+  return sanitizeEmailCopy(next, fallback);
 }
 
 async function createAiEmailCopy(context, fallback) {
@@ -2547,6 +2606,8 @@ function normalizeAnnouncement(data = {}, id) {
   return {
     status: data.status || "ready",
     sendEmail: data.sendEmail !== false,
+    courseId: String(data.courseId || "").trim(),
+    lessonId: String(data.lessonId || "").trim(),
     courseTitle,
     lessonTitle,
     lessonUrl,
@@ -2928,6 +2989,31 @@ function getNumberEnv(name, fallback) {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+function getRecipientEmailKey(value) {
+  const email = String(value || "").trim().toLowerCase();
+  const atIndex = email.lastIndexOf("@");
+  if (atIndex <= 0 || atIndex === email.length - 1) return "";
+
+  const local = email.slice(0, atIndex);
+  const domain = email.slice(atIndex + 1);
+  if (domain === "gmail.com" || domain === "googlemail.com") {
+    return `${local.split("+")[0].replace(/\./g, "")}@gmail.com`;
+  }
+
+  return email;
+}
+
+function isAllowedTestRecipient(emailKey) {
+  const rawAllowlist = String(process.env.EMAIL_RECIPIENT_ALLOWLIST || "").trim();
+  if (!rawAllowlist) return true;
+
+  const allowed = rawAllowlist
+    .split(/[,\s]+/)
+    .map(getRecipientEmailKey)
+    .filter(Boolean);
+  return allowed.includes(emailKey);
+}
+
 function cleanText(value) {
   return String(value || "")
     .replace(/[<>]/g, "")
@@ -2935,6 +3021,19 @@ function cleanText(value) {
     .replace(/\n\s+/g, "\n")
     .replace(/[ \t]{2,}/g, " ")
     .trim();
+}
+
+function textIncludesNormalized(value, expected) {
+  const haystack = normalizeSearchText(value);
+  const needle = normalizeSearchText(expected);
+  return Boolean(needle && haystack.includes(needle));
+}
+
+function normalizeSearchText(value) {
+  return cleanText(value)
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 }
 
 function cleanDisplayName(value) {

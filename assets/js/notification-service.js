@@ -149,6 +149,9 @@ function getEnglishNotificationCopy(item = {}) {
     return legacyEnglishNotificationCopies.get("bat dau thoi quen toeic");
   }
   if (id.startsWith("announcement__")) {
+    if (item.lessonTitle || item.lessonId || item.courseId || item.lessonUrl || item.actionUrl) {
+      return null;
+    }
     return legacyEnglishNotificationCopies.get("co bai toeic moi");
   }
   if (type === "pair_streak_nudge" || id.startsWith("pair_streak_nudge_")) {

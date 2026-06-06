@@ -369,11 +369,13 @@ a {
 
 .notification-popover__list {
   display: grid;
+  align-content: start;
+  grid-auto-rows: max-content;
   gap: 8px;
   height: 260px;
   max-height: 260px;
   overflow-y: auto;
-  padding: 10px;
+  padding: 12px 14px;
 }
 
 .notification-popover__item {
@@ -381,9 +383,10 @@ a {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 4px;
   align-items: start;
+  min-height: 64px;
   border: 2px solid var(--border-color);
   border-radius: 12px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   background: #fff;
   cursor: pointer;
   transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
@@ -3096,11 +3099,13 @@ body.modal-open {
 .friend-card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 252px));
+  grid-auto-rows: minmax(268px, auto);
+  align-items: stretch;
   justify-content: center;
   gap: 16px;
   max-height: 420px;
   overflow-y: auto;
-  padding: 6px 6px 10px;
+  padding: 6px 6px 18px;
   scrollbar-width: thin;
   scrollbar-color: rgba(88, 204, 2, 0.4) transparent;
 }
@@ -3121,6 +3126,7 @@ body.modal-open {
 .friend-card {
   display: flex;
   flex-direction: column;
+  min-height: 268px;
   border: 2px solid var(--border-color);
   border-radius: 16px;
   background: #fff;
@@ -3139,6 +3145,7 @@ body.modal-open {
   flex-direction: column;
   align-items: center;
   gap: 10px;
+  min-height: 178px;
   border: 0;
   background: linear-gradient(180deg, rgba(88, 204, 2, 0.06), #fff 70%);
   padding: 24px 18px 14px;
@@ -3230,12 +3237,13 @@ body.modal-open {
 .friend-card__action {
   display: flex;
   justify-content: center;
-  padding: 0 18px 16px;
+  margin-top: auto;
+  padding: 6px 18px 20px;
 }
 
 .friend-card__action .friend-chip-btn {
   width: 100%;
-  min-height: 48px;
+  min-height: 46px;
   border-radius: 12px;
   font-size: 13px;
 }
@@ -5232,16 +5240,19 @@ body.modal-open {
 
   .friend-card-grid {
     grid-template-columns: 1fr;
+    grid-auto-rows: minmax(246px, auto);
     justify-content: stretch;
     max-height: min(52dvh, 430px);
-    padding: 4px 4px 10px;
+    padding: 4px 4px 16px;
   }
 
   .friend-card {
+    min-height: 246px;
     border-radius: 14px;
   }
 
   .friend-card__body {
+    min-height: 160px;
     padding: 18px 14px 12px;
   }
 
@@ -5255,7 +5266,7 @@ body.modal-open {
   }
 
   .friend-card__action {
-    padding: 0 14px 14px;
+    padding: 6px 14px 18px;
   }
 
   .connection-tabs {
