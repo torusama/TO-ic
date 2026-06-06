@@ -3100,7 +3100,7 @@ body.modal-open {
   gap: 16px;
   max-height: 420px;
   overflow-y: auto;
-  padding: 4px;
+  padding: 6px 6px 10px;
   scrollbar-width: thin;
   scrollbar-color: rgba(88, 204, 2, 0.4) transparent;
 }
@@ -5234,7 +5234,7 @@ body.modal-open {
     grid-template-columns: 1fr;
     justify-content: stretch;
     max-height: min(52dvh, 430px);
-    padding: 2px;
+    padding: 4px 4px 10px;
   }
 
   .friend-card {

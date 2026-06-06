@@ -678,7 +678,7 @@ async function sendReadyAnnouncements() {
     const candidates = await getEmailCandidates((user) => shouldSendAnnouncement(user));
     const deliveryResult = await deliverToCandidates({
       candidates,
-      deliveryId: `announcement__${item.id}`,
+      deliveryId: `announcement__${item.id}${item.data.sendVersion > 1 ? `__v${item.data.sendVersion}` : ""}`,
       type: "announcement",
       copyFactory: (user) => createAnnouncementCopy(user, announcement),
       urlFactory: () => announcement.lessonUrl,
@@ -842,16 +842,43 @@ async function queueReadyLessonAnnouncements() {
       const announcementData = announcementSnap.exists ? announcementSnap.data() || {} : {};
 
       if (isTerminalAnnouncementStatus(announcementData.status)) {
-        await lessonSnap.ref.set(
+        // Reset the existing announcement so it can be re-sent when the
+        // admin explicitly re-checks the "notify" checkbox.
+        const nextVersion = Number(announcementData.sendVersion || 1) + 1;
+        const now = admin.firestore.FieldValue.serverTimestamp();
+        const batch = db.batch();
+        batch.set(
+          announcementRef,
           {
-            notifyNewLesson: false,
-            announcementId,
-            announcementStatus: announcementData.status,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            status: "ready",
+            sendVersion: nextVersion,
+            type: "new-lesson",
+            sendEmail: true,
+            courseId,
+            lessonId,
+            courseTitle: course.title || courseId,
+            lessonTitle: lesson.title || lessonId,
+            lessonUrl: buildLessonUrl(courseId, lessonId),
+            summary: lesson.description || lesson.status || lesson.type || "",
+            source: "course-lesson",
+            sourcePath: lessonSnap.ref.path,
+            updatedAt: now,
           },
           { merge: true }
         );
-        result.skipped += 1;
+        batch.set(
+          lessonSnap.ref,
+          {
+            notifyNewLesson: false,
+            announcementId,
+            announcementStatus: "queued",
+            announcementQueuedAt: now,
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+        await batch.commit();
+        result.queued += 1;
         continue;
       }
 
@@ -1310,9 +1337,9 @@ function canSendReminderInSlot(data = {}, todayKey, slot) {
 function getMaxStudyRemindersPerDay(data = {}) {
   const userMax = {
     gentle: 1,
-    normal: 2,
+    normal: 1,
     dramatic: 3,
-  }[getReminderIntensity(data)] || 2;
+  }[getReminderIntensity(data)] || 1;
   const globalMax = getNumberEnv("MAX_STUDY_REMINDERS_PER_DAY", userMax);
   return Math.min(userMax, globalMax);
 }
